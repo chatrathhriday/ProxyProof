@@ -8,7 +8,7 @@ rules and presence over the whole class make proxy attendance impractical.
 | | |
 |---|---|
 | **Live dashboard** | https://proxyproof.onrender.com (free tier: first load after idle takes ~50 s) |
-| **Android APK** | [Releases](../../releases) |
+| **Android APK** | [Download ProxyProof.apk](https://github.com/chatrathhriday/ProxyProof/releases/latest/download/ProxyProof.apk) · [all releases](https://github.com/chatrathhriday/ProxyProof/releases) |
 | **Demo video** | _link_ |
 | **Demo logins** | teacher `prof@proxyproof.test` · admin `admin@proxyproof.test` · students `student1..3@proxyproof.test` — password `password123` |
 

@@ -5,3 +5,4 @@ node_modules/
 build/
 .dart_tool/
 tools/.laptop_keys/
+release/
