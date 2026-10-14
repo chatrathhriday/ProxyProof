@@ -5,6 +5,8 @@ import { date } from './util.js'
 export default function Approvals() {
   const [list, setList] = useState(null)
   const [error, setError] = useState(null)
+  const [teacher, setTeacher] = useState({ name: '', email: '', password: '' })
+  const [msg, setMsg] = useState(null)
 
   const load = () => api('GET', '/devices/pending').then(setList).catch((e) => setError(e.message))
   useEffect(() => {
@@ -18,6 +20,18 @@ export default function Approvals() {
       setError(e.message)
     }
     load()
+  }
+
+  async function createTeacher(e) {
+    e.preventDefault()
+    setError(null)
+    try {
+      const u = await api('POST', '/auth/users', { ...teacher, role: 'organiser' })
+      setMsg(`Teacher account created for ${u.email}. Share the password with them privately.`)
+      setTeacher({ name: '', email: '', password: '' })
+    } catch (err) {
+      setError(err.message)
+    }
   }
 
   return (
@@ -48,6 +62,32 @@ export default function Approvals() {
           </div>
         ))}
       </div>
+
+      <h2>Add a teacher</h2>
+      <form className="card pad-form" onSubmit={createTeacher}>
+        <div className="inline-form">
+          <input placeholder="Full name" value={teacher.name} onChange={(e) => setTeacher({ ...teacher, name: e.target.value })} required />
+          <input
+            type="email"
+            placeholder="Email"
+            value={teacher.email}
+            onChange={(e) => setTeacher({ ...teacher, email: e.target.value })}
+            required
+          />
+          <input
+            type="password"
+            placeholder="Temporary password (6+)"
+            minLength="6"
+            value={teacher.password}
+            onChange={(e) => setTeacher({ ...teacher, password: e.target.value })}
+            required
+          />
+        </div>
+        <div className="actions">
+          <button className="btn primary">Create teacher account</button>
+          {msg && <span className="muted small">{msg}</span>}
+        </div>
+      </form>
     </section>
   )
 }

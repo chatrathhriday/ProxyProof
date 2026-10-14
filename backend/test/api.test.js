@@ -189,6 +189,19 @@ test('manual override and CSV export', async () => {
   assert.match(csv, /\ns1,s1@t\.test,present,manual/);
 });
 
+test('course roster and unenroll', async () => {
+  const r = await api('GET', `/courses/${courseId}/students`, { token: prof });
+  assert.equal(r.status, 200);
+  assert.ok(r.body.students.some((s) => s.email === 's1@t.test' && s.has_device));
+  assert.equal((await api('GET', `/courses/${courseId}/students`, { token: s1 })).status, 403);
+  const courses = (await api('GET', '/courses', { token: prof })).body;
+  assert.ok(courses[0].students >= 2);
+  const evil = r.body.students.find((s) => s.email === 'evil@t.test');
+  await api('POST', `/courses/${courseId}/unenroll`, { token: prof, body: { studentId: evil.id } });
+  const after = (await api('GET', `/courses/${courseId}/students`, { token: prof })).body.students;
+  assert.ok(!after.some((s) => s.email === 'evil@t.test'));
+});
+
 test('session detail shows roster with statuses; close stops marking', async () => {
   resetLimits();
   const d = await api('GET', `/sessions/${session.id}`, { token: prof });

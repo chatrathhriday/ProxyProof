@@ -6,6 +6,7 @@ import 'package:flutter_ble_peripheral/flutter_ble_peripheral.dart';
 import '../api.dart';
 import '../ibeacon.dart';
 import '../permissions.dart';
+import 'summary_screen.dart';
 
 /// Organiser's phone acts as the beacon. Every 10 s window it fetches the new token from
 /// the server (it never knows the secret) and restarts the advertisement with it.
@@ -28,6 +29,7 @@ class _BroadcastScreenState extends State<BroadcastScreen> {
   int _total = 0;
   String? _error;
   bool _closing = false;
+  bool _spotOpen = false;
 
   @override
   void initState() {
@@ -89,9 +91,24 @@ class _BroadcastScreenState extends State<BroadcastScreen> {
         setState(() {
           _total = list.length;
           _present = list.where((a) => a['status'] == 'present').length;
+          _spotOpen = s['spotChecks']?['open'] == true;
         });
       }
     } catch (_) {}
+  }
+
+  Future<void> _spotCheck() async {
+    try {
+      await Api.instance.post('/sessions/${widget.sessionId}/spot-check');
+      setState(() => _spotOpen = true);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Spot check sent — students have 20 s to confirm with their fingerprint.')),
+        );
+      }
+    } catch (e) {
+      setState(() => _error = '$e');
+    }
   }
 
   Future<void> _close() async {
@@ -110,7 +127,14 @@ class _BroadcastScreenState extends State<BroadcastScreen> {
     setState(() => _closing = true);
     try {
       await Api.instance.post('/sessions/${widget.sessionId}/close');
-      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => SummaryScreen(sessionId: widget.sessionId, title: widget.title),
+          ),
+        );
+      }
     } catch (e) {
       setState(() {
         _closing = false;
@@ -173,9 +197,15 @@ class _BroadcastScreenState extends State<BroadcastScreen> {
               const Text('Keep this screen open during class.', textAlign: TextAlign.center),
               const SizedBox(height: 12),
               OutlinedButton.icon(
+                onPressed: _minor == null || _spotOpen ? null : _spotCheck,
+                icon: const Icon(Icons.fingerprint),
+                label: Text(_spotOpen ? 'Spot check running…' : 'Spot check now'),
+              ),
+              const SizedBox(height: 8),
+              FilledButton.icon(
                 onPressed: _closing ? null : _close,
                 icon: const Icon(Icons.stop_circle_outlined),
-                label: const Text('Close session'),
+                label: const Text('Close session & review'),
               ),
             ],
           ),

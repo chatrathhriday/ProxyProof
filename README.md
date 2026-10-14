@@ -21,8 +21,15 @@ rules and presence over the whole class make proxy attendance impractical.
 3. Tap **Close session**. The summary says e.g. **"42 present · 2 need review · 6 absent"**.
    Glance at the 2 flagged rows (each has a one-line reason), tap **Approve all**. Done.
 
+The same summary, with **Approve all**, opens on the teacher's phone right after closing (and on the dashboard).
 No roll call, no QR code on the projector, no PIN to read out. Everything else (thresholds, the 80% rule)
 has sensible defaults and stays out of the way.
+
+## Setting up (once per course)
+
+Dashboard → **New course** (code + name) → paste students' emails (they register in the app first).
+The course page then shows each student's attendance % and whether their phone is linked.
+Admins add teacher accounts and approve phone changes from their dashboard page.
 
 ## Student experience
 

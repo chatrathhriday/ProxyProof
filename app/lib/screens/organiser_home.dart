@@ -14,6 +14,58 @@ class OrganiserHome extends StatefulWidget {
 
 class _OrganiserHomeState extends State<OrganiserHome> {
   late Future<(List, List)> _data = _load();
+  // "Advanced" session settings; the defaults suit a normal classroom.
+  int _presencePct = 80;
+  int _rssiThreshold = -75;
+  int _expectedMinutes = 50;
+
+  Future<void> _advanced() => showModalBottomSheet(
+    context: context,
+    builder: (c) => StatefulBuilder(
+      builder: (c, set) {
+        void update(VoidCallback f) {
+          set(f);
+          setState(() {});
+        }
+
+        return Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Advanced session settings', style: Theme.of(c).textTheme.titleLarge),
+              const SizedBox(height: 12),
+              Text('Present if in range for ≥ $_presencePct% of the class'),
+              Slider(
+                value: _presencePct.toDouble(),
+                min: 50,
+                max: 100,
+                divisions: 10,
+                onChanged: (v) => update(() => _presencePct = v.round()),
+              ),
+              Text('Signal threshold: $_rssiThreshold dBm (higher = stricter radius)'),
+              Slider(
+                value: _rssiThreshold.toDouble(),
+                min: -90,
+                max: -55,
+                divisions: 7,
+                onChanged: (v) => update(() => _rssiThreshold = v.round()),
+              ),
+              Text('Class length: $_expectedMinutes min (times the random spot check)'),
+              Slider(
+                value: _expectedMinutes.toDouble(),
+                min: 10,
+                max: 120,
+                divisions: 11,
+                onChanged: (v) => update(() => _expectedMinutes = v.round()),
+              ),
+            ],
+          ),
+        );
+      },
+    ),
+  );
 
   Future<(List, List)> _load() async {
     final courses = await Api.instance.get('/courses') as List;
@@ -32,7 +84,12 @@ class _OrganiserHomeState extends State<OrganiserHome> {
 
   Future<void> _start(Map course) async {
     try {
-      final s = await Api.instance.post('/sessions', {'courseId': course['id']});
+      final s = await Api.instance.post('/sessions', {
+        'courseId': course['id'],
+        'presencePct': _presencePct,
+        'rssiThreshold': _rssiThreshold,
+        'expectedMinutes': _expectedMinutes,
+      });
       await _open(s['id'] as int, course['code'] as String);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
@@ -44,7 +101,10 @@ class _OrganiserHomeState extends State<OrganiserHome> {
     return Scaffold(
       appBar: AppBar(
         title: Text('Hi, ${Api.instance.user?['name'] ?? ''}'),
-        actions: [IconButton(icon: const Icon(Icons.logout), onPressed: () => logout(context))],
+        actions: [
+          IconButton(icon: const Icon(Icons.tune), tooltip: 'Advanced', onPressed: _advanced),
+          IconButton(icon: const Icon(Icons.logout), onPressed: () => logout(context)),
+        ],
       ),
       body: FutureBuilder(
         future: _data,
