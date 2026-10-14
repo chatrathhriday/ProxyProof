@@ -134,3 +134,14 @@ test('Approve all turns review cases into present and finalises', async () => {
   const csv = await (await fetch(`${base}/sessions/${session.id}/export.csv`, { headers: { authorization: `Bearer ${prof}` } })).text();
   assert.match(csv, /\nCarol,carol@t\.test,present,manual,100,failed,set by teacher/);
 });
+
+test('student history: held sessions, presents, percentage', async () => {
+  const mine = async (name) => (await api('GET', '/me/attendance', { token: students[name].token })).body[0];
+  const alice = await mine('Alice');
+  assert.deepEqual([alice.code, alice.held, alice.present, alice.review, alice.pct], ['PHY1', 1, 1, 0, 100]);
+  assert.equal(alice.sessions[0].status, 'present');
+  const bob = await mine('Bob');
+  assert.deepEqual([bob.held, bob.present, bob.pct], [1, 0, 0]);
+  assert.equal(bob.sessions[0].status, 'absent');
+  assert.equal((await api('GET', '/me/attendance', { token: prof })).status, 403);
+});

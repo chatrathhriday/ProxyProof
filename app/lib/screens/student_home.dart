@@ -11,6 +11,7 @@ import '../ibeacon.dart';
 import '../main.dart';
 import '../permissions.dart';
 import 'device_gate.dart';
+import 'history_screen.dart';
 
 /// Student phone scans for our beacon, collects RSSI samples, and every ~10 s sends a
 /// signed report (major, latest minor, samples, timestamp). The first report in a class
@@ -216,7 +217,14 @@ class _StudentHomeState extends State<StudentHome> {
     return Scaffold(
       appBar: AppBar(
         title: Text('Hi, ${Api.instance.user?['name'] ?? ''}'),
-        actions: [IconButton(icon: const Icon(Icons.logout), onPressed: () => logout(context))],
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.bar_chart),
+            tooltip: 'My attendance',
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const HistoryScreen())),
+          ),
+          IconButton(icon: const Icon(Icons.logout), onPressed: () => logout(context)),
+        ],
       ),
       body: SafeArea(
         child: Padding(
