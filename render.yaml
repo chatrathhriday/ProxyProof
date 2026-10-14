@@ -1,0 +1,23 @@
+# Render Blueprint: one web service runs the API, Socket.IO and the built dashboard.
+# Database is Neon (free Postgres); paste its connection string as DATABASE_URL when asked.
+services:
+  - type: web
+    name: proxyproof
+    runtime: node
+    plan: free
+    region: singapore
+    # --include=dev: NODE_ENV=production would otherwise skip Vite, which the dashboard build needs
+    buildCommand: cd dashboard && npm ci --include=dev && npm run build && cd ../backend && npm ci --omit=dev
+    startCommand: cd backend && npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false # entered in the Render dashboard, never committed
+      - key: JWT_SECRET
+        generateValue: true
+      - key: SEED_DEMO
+        value: "true"

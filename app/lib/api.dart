@@ -18,10 +18,10 @@ class Api {
   Api._();
   static final Api instance = Api._();
 
-  // Dev default: `adb reverse tcp:3000 tcp:3000` tunnels the phone's localhost to the
-  // laptop over USB (works even on campus Wi-Fi that isolates clients).
-  // Changeable on the login screen; release builds will point at the Render URL.
-  static const defaultBaseUrl = 'http://localhost:3000';
+  // Release builds pass the deployed URL: flutter build apk --dart-define=API_URL=https://...
+  // Dev default: `adb reverse tcp:3000 tcp:3000` tunnels the phone's localhost to the laptop.
+  // Always changeable on the login screen ("Server").
+  static const defaultBaseUrl = String.fromEnvironment('API_URL', defaultValue: 'http://localhost:3000');
 
   late SharedPreferences _prefs;
   String baseUrl = defaultBaseUrl;
