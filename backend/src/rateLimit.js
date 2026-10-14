@@ -1,6 +1,6 @@
 // In-memory sliding-window limiter. Why it matters: the token is only 16 bits, so
 // without a limit an attacker could brute-force 65,536 guesses. At 10 tries/min/device
-// and a ~30 s validity window, the odds of a lucky guess are ~5 in 65,536 per window.
+// with 3 valid tokens at any moment (window ±1), ~5 guesses per 30 s succeed with ~1 in 4,400 odds.
 // (In-memory is fine for one Render instance; a multi-instance deploy would use Redis.)
 import { now as clockNow } from './clock.js';
 
