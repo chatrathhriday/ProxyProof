@@ -1,0 +1,6 @@
+node_modules/
+.env
+.pgdata/
+*.log
+build/
+.dart_tool/
