@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { io } from 'socket.io-client'
 import { api, download, getAuth } from './api.js'
-import { ago, date, duration, time, useTick } from './util.js'
+import { ago, date, duration, useTick } from './util.js'
 
-const STATUS = {
+const VERDICT = {
   present: { label: 'Present', cls: 'ok' },
   review: { label: 'Needs review', cls: 'warn' },
   absent: { label: 'Absent', cls: 'bad' },
+}
+const SPOT = {
+  passed: { label: 'Passed', cls: 'ok' },
+  pending: { label: 'Waiting…', cls: '' },
+  failed: { label: 'No answer', cls: 'bad' },
+  missed: { label: 'Out of range', cls: 'warn' },
 }
 
 export default function SessionView({ id, onBack }) {
@@ -14,6 +20,7 @@ export default function SessionView({ id, onBack }) {
   const [error, setError] = useState(null)
   const [filter, setFilter] = useState('')
   const [connected, setConnected] = useState(false)
+  const [busy, setBusy] = useState(false)
   useTick(1000)
 
   const load = useCallback(() => api('GET', `/sessions/${id}`).then(setS).catch((e) => setError(e.message)), [id])
@@ -42,35 +49,40 @@ export default function SessionView({ id, onBack }) {
     return () => socket.disconnect()
   }, [id, load])
 
+  // "In range %" moves with time even without events, so refresh it while live.
+  const live = s?.status === 'active'
+  useEffect(() => {
+    if (!live) return
+    const t = setInterval(load, 30000)
+    return () => clearInterval(t)
+  }, [live, load])
+
   const rows = useMemo(() => {
     const q = filter.trim().toLowerCase()
-    return (s?.attendance || []).filter((a) => !q || a.name.toLowerCase().includes(q) || a.email.includes(q))
-  }, [s, filter])
+    const list = (s?.attendance || []).filter((a) => !q || a.name.toLowerCase().includes(q) || a.email.includes(q))
+    // After class, unclear cases float to the top: that's all the teacher needs to look at.
+    return live ? list : [...list].sort((a, b) => (b.verdict === 'review') - (a.verdict === 'review'))
+  }, [s, filter, live])
 
   if (!s) return <p className="muted">{error || 'Loading…'}</p>
 
-  const live = s.status === 'active'
-  const present = s.attendance.filter((a) => a.status === 'present').length
-  const total = s.attendance.length
-
-  async function mark(student, status) {
+  const act = (fn) => async () => {
+    setBusy(true)
+    setError(null)
     try {
-      await api('POST', `/sessions/${id}/attendance`, { studentId: student.student_id, status })
+      await fn()
       await load()
     } catch (e) {
       setError(e.message)
+    } finally {
+      setBusy(false)
     }
   }
-
-  async function close() {
-    if (!confirm('Close this session? Students can no longer be marked.')) return
-    try {
-      await api('POST', `/sessions/${id}/close`)
-      await load()
-    } catch (e) {
-      setError(e.message)
-    }
-  }
+  const mark = (student, status) => act(() => api('POST', `/sessions/${id}/attendance`, { studentId: student.student_id, status }))()
+  const close = () => confirm('Close this session? Students can no longer be marked.') && act(() => api('POST', `/sessions/${id}/close`))()
+  const spotCheck = act(() => api('POST', `/sessions/${id}/spot-check`))
+  const approveAll = act(() => api('POST', `/sessions/${id}/approve-all`))
+  const { present, review, absent } = s.counts
 
   return (
     <>
@@ -96,11 +108,16 @@ export default function SessionView({ id, onBack }) {
           </p>
         </div>
         <div className="actions">
+          {live && (
+            <button className="btn" onClick={spotCheck} disabled={busy || s.spotChecks.open}>
+              {s.spotChecks.open ? 'Spot check running…' : 'Spot check now'}
+            </button>
+          )}
           <button className="btn" onClick={() => download(`/sessions/${id}/export.csv`).catch((e) => setError(e.message))}>
             Export CSV
           </button>
           {live && (
-            <button className="btn danger" onClick={close}>
+            <button className="btn danger" onClick={close} disabled={busy}>
               Close session
             </button>
           )}
@@ -109,18 +126,44 @@ export default function SessionView({ id, onBack }) {
 
       {error && <p className="error">{error}</p>}
 
+      {!live && (
+        <div className={`card summary ${review ? 'attention' : ''}`}>
+          <div>
+            <strong>
+              {present} present · {review} need review · {absent} absent
+            </strong>
+            <div className="muted small">
+              {s.finalized_at
+                ? `Finalised ${date(s.finalized_at)}.`
+                : review
+                  ? 'Clear cases were decided automatically. Check the flagged ones below, then approve the rest.'
+                  : 'Every case was clear — nothing to review.'}
+            </div>
+          </div>
+          {!s.finalized_at && review > 0 && (
+            <button className="btn primary" onClick={approveAll} disabled={busy}>
+              Approve all ({review})
+            </button>
+          )}
+        </div>
+      )}
+
+      {live && s.spotChecks.open && (
+        <p className="banner">Spot check running — each student in range has 20 s to confirm with their fingerprint.</p>
+      )}
+
       <div className="stats">
         <div className="card stat">
           <span className="big ok-text">{present}</span>
-          <span className="muted">present</span>
+          <span className="muted">present{live && ' so far'}</span>
         </div>
         <div className="card stat">
-          <span className="big">{total - present}</span>
-          <span className="muted">not marked</span>
+          <span className="big warn-text">{review}</span>
+          <span className="muted">need review</span>
         </div>
         <div className="card stat">
-          <span className="big">{total ? Math.round((present / total) * 100) : 0}%</span>
-          <span className="muted">of {total} enrolled</span>
+          <span className="big">{absent}</span>
+          <span className="muted">{live ? 'not here' : 'absent'}</span>
         </div>
       </div>
 
@@ -134,36 +177,61 @@ export default function SessionView({ id, onBack }) {
               <tr>
                 <th>Student</th>
                 <th>Status</th>
-                <th>Marked</th>
+                <th>In range</th>
+                <th>Spot check</th>
                 <th>Last seen</th>
-                <th>Signal</th>
                 <th />
               </tr>
             </thead>
             <tbody>
               {rows.map((a) => {
-                const st = STATUS[a.status] || { label: 'Not marked', cls: '' }
-                const isPresent = a.status === 'present'
+                const v = VERDICT[a.verdict]
+                const spot = SPOT[a.spot]
+                const isPresent = a.verdict === 'present'
                 return (
-                  <tr key={a.student_id}>
+                  <tr key={a.student_id} className={a.verdict === 'review' && !live ? 'flagged' : ''}>
                     <td>
                       <strong>{a.name}</strong>
                       <div className="muted small">{a.email}</div>
                     </td>
                     <td>
-                      <span className={`pill ${st.cls}`}>{st.label}</span>
-                      {a.source === 'manual' && <span className="muted small"> · manual</span>}
+                      <span className={`pill ${v.cls}`}>{v.label}</span>
+                      <div className="muted small">{a.reason}</div>
                     </td>
-                    <td>{time(a.first_seen)}</td>
+                    <td>
+                      {a.status ? (
+                        <div className="meter" title={`${Math.round(a.coverage * 100)}% of the class`}>
+                          <span style={{ width: `${Math.round(a.coverage * 100)}%` }} />
+                          <em>{Math.round(a.coverage * 100)}%</em>
+                        </div>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td>{spot ? <span className={`pill ${spot.cls}`}>{spot.label}</span> : <span className="muted">—</span>}</td>
                     <td title={a.last_seen || ''}>
                       {ago(a.last_seen)}
-                      {a.sightings > 0 && <div className="muted small">{a.sightings} sightings</div>}
+                      {a.last_rssi != null && <div className="muted small">{a.last_rssi} dBm</div>}
                     </td>
-                    <td>{a.last_rssi != null ? `${a.last_rssi} dBm` : '—'}</td>
                     <td className="right">
-                      <button className={`btn small ${isPresent ? 'ghost' : ''}`} onClick={() => mark(a, isPresent ? 'absent' : 'present')}>
-                        {isPresent ? 'Mark absent' : 'Mark present'}
-                      </button>
+                      {a.verdict === 'review' ? (
+                        <span className="actions end">
+                          <button className="btn small ghost" onClick={() => mark(a, 'absent')} disabled={busy}>
+                            Absent
+                          </button>
+                          <button className="btn small" onClick={() => mark(a, 'present')} disabled={busy}>
+                            Present
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          className={`btn small ${isPresent ? 'ghost' : ''}`}
+                          onClick={() => mark(a, isPresent ? 'absent' : 'present')}
+                          disabled={busy}
+                        >
+                          {isPresent ? 'Mark absent' : 'Mark present'}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 )
@@ -179,6 +247,11 @@ export default function SessionView({ id, onBack }) {
           </table>
         </div>
       </div>
+      {live && (
+        <p className="muted small">
+          “Present” needs {s.presence_pct}% of the class in range. One automatic spot check happens at a random time.
+        </p>
+      )}
     </>
   )
 }

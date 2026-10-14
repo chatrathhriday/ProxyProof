@@ -4,6 +4,8 @@ import { query, one } from '../db.js';
 import { requireRole } from '../auth.js';
 import { BEACON_UUID, WINDOW_SECONDS, currentWindow, newSecret, tokenFor } from '../tokens.js';
 import { emit } from '../live.js';
+import { now } from '../clock.js';
+import { sessionReport, persistVerdicts, randomSpotCheckTime } from '../presence.js';
 
 export const sessionsRouter = express.Router();
 
@@ -17,20 +19,25 @@ async function ownedSession(req) {
 
 const publicSession = ({ secret, ...rest }) => rest; // the secret never leaves the server
 
+// Defaults keep the teacher's flow to one tap; thresholds live under "Advanced".
 sessionsRouter.post('/', requireRole('organiser'), async (req, res) => {
-  const { courseId, rssiThreshold = -75, presencePct = 80 } = req.body || {};
+  const { courseId, rssiThreshold = -75, presencePct = 80, expectedMinutes = 50 } = req.body || {};
   const course = await one('SELECT * FROM courses WHERE id = $1 AND organiser_id = $2', [courseId, req.user.id]);
   if (!course) return res.status(404).json({ error: 'course not found' });
+  const minutes = Math.min(240, Math.max(1, Number(expectedMinutes) || 50));
+  const t = now();
 
   // Random 16-bit short code (iBeacon major), unique among active sessions. Retry on collision.
   for (let attempt = 0; attempt < 5; attempt++) {
     const shortCode = crypto.randomInt(0, 65536);
     try {
       const s = await one(
-        `INSERT INTO sessions (course_id, organiser_id, short_code, secret, rssi_threshold, presence_pct)
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-        [course.id, req.user.id, shortCode, newSecret(), rssiThreshold, presencePct]
+        `INSERT INTO sessions (course_id, organiser_id, short_code, secret, rssi_threshold, presence_pct, expected_minutes, started_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+        [course.id, req.user.id, shortCode, newSecret(), rssiThreshold, presencePct, minutes, new Date(t)]
       );
+      // One automatic spot check at a random moment the students can't predict.
+      await query('INSERT INTO spot_checks (session_id, starts_at, auto) VALUES ($1, $2, true)', [s.id, randomSpotCheckTime(t, minutes)]);
       return res.status(201).json(publicSession(s));
     } catch (e) {
       if (e.code !== '23505') throw e; // unique violation -> try another code
@@ -42,8 +49,9 @@ sessionsRouter.post('/', requireRole('organiser'), async (req, res) => {
 sessionsRouter.get('/', requireRole('organiser', 'admin'), async (req, res) => {
   const rows = await query(
     `SELECT s.id, s.course_id, c.code AS course_code, c.name AS course_name, s.short_code, s.status,
-            s.started_at, s.closed_at,
-            (SELECT count(*)::int FROM attendance a WHERE a.session_id = s.id AND a.status = 'present') AS present
+            s.started_at, s.closed_at, s.finalized_at,
+            (SELECT count(*)::int FROM attendance a WHERE a.session_id = s.id AND a.status = 'present') AS present,
+            (SELECT count(*)::int FROM attendance a WHERE a.session_id = s.id AND a.status = 'review') AS review
      FROM sessions s JOIN courses c ON c.id = s.course_id
      WHERE ($1::int IS NULL OR s.organiser_id = $1)
      ORDER BY s.started_at DESC LIMIT 100`,
@@ -52,29 +60,13 @@ sessionsRouter.get('/', requireRole('organiser', 'admin'), async (req, res) => {
   res.json(rows);
 });
 
+// Roster with presence %, spot-check result and the verdict for every enrolled student.
 sessionsRouter.get('/:id', requireRole('organiser', 'admin'), async (req, res) => {
   const s = await ownedSession(req);
   if (!s) return res.status(404).json({ error: 'session not found' });
   const course = await one('SELECT code, name FROM courses WHERE id = $1', [s.course_id]);
-  res.json({ ...publicSession(s), course, attendance: await roster(s) });
+  res.json({ ...publicSession(s), course, ...(await sessionReport(s)) });
 });
-
-// Every enrolled student with their mark (if any) and presence stats from sightings.
-function roster(s) {
-  return query(
-    `SELECT u.id AS student_id, u.name, u.email, a.status, a.source, a.first_seen,
-            sg.last_seen, sg.last_rssi, COALESCE(sg.sightings, 0)::int AS sightings
-     FROM enrollments e JOIN users u ON u.id = e.student_id
-     LEFT JOIN attendance a ON a.student_id = u.id AND a.session_id = $1
-     LEFT JOIN LATERAL (
-       SELECT max(created_at) AS last_seen, count(*) AS sightings,
-              (array_agg(rssi_median ORDER BY created_at DESC))[1] AS last_rssi
-       FROM sightings WHERE session_id = $1 AND student_id = u.id
-     ) sg ON true
-     WHERE e.course_id = $2 ORDER BY u.name`,
-    [s.id, s.course_id]
-  );
-}
 
 // Organiser override: mark someone present (phone died) or absent (caught proxying).
 // Manual marks carry no device, so they never block a phone's one-student-per-session rule.
@@ -85,13 +77,43 @@ sessionsRouter.post('/:id/attendance', requireRole('organiser', 'admin'), async 
   if (!['present', 'absent'].includes(status)) return res.status(400).json({ error: "status must be 'present' or 'absent'" });
   const enrolled = await one('SELECT 1 FROM enrollments WHERE course_id = $1 AND student_id = $2', [s.course_id, studentId]);
   if (!enrolled) return res.status(404).json({ error: 'student not enrolled' });
-  await query(
-    `INSERT INTO attendance (session_id, student_id, status, source) VALUES ($1, $2, $3, 'manual')
-     ON CONFLICT (session_id, student_id) DO UPDATE SET status = EXCLUDED.status, source = 'manual'`,
-    [s.id, studentId, status]
-  );
+  await setManual(s.id, studentId, status);
   emit(s.id, 'roster');
   res.json({ ok: true });
+});
+
+const setManual = (sessionId, studentId, status) =>
+  query(
+    `INSERT INTO attendance (session_id, student_id, status, source) VALUES ($1, $2, $3, 'manual')
+     ON CONFLICT (session_id, student_id) DO UPDATE SET status = EXCLUDED.status, source = 'manual'`,
+    [sessionId, studentId, status]
+  );
+
+// "Spot check now" button: opens a check immediately (in addition to the automatic one).
+sessionsRouter.post('/:id/spot-check', requireRole('organiser', 'admin'), async (req, res) => {
+  const s = await ownedSession(req);
+  if (!s) return res.status(404).json({ error: 'session not found' });
+  if (s.status !== 'active') return res.status(409).json({ error: 'session closed' });
+  const c = await one('INSERT INTO spot_checks (session_id, starts_at, auto) VALUES ($1, $2, false) RETURNING id, starts_at', [
+    s.id,
+    new Date(now()),
+  ]);
+  emit(s.id, 'roster');
+  res.status(201).json(c);
+});
+
+// End-of-class "Approve all": every case still flagged for review becomes present.
+// (The teacher fixes the few they disagree with first, using Mark present/absent.)
+sessionsRouter.post('/:id/approve-all', requireRole('organiser', 'admin'), async (req, res) => {
+  const s = await ownedSession(req);
+  if (!s) return res.status(404).json({ error: 'session not found' });
+  if (s.status !== 'closed') return res.status(409).json({ error: 'close the session first' });
+  const { attendance } = await sessionReport(s);
+  const flagged = attendance.filter((a) => a.verdict === 'review');
+  for (const a of flagged) await setManual(s.id, a.student_id, 'present');
+  await query('UPDATE sessions SET finalized_at = $2 WHERE id = $1', [s.id, new Date(now())]);
+  emit(s.id, 'roster');
+  res.json({ approved: flagged.length });
 });
 
 // CSV for the college register. Cells starting with = + - @ are prefixed with ' so
@@ -105,14 +127,17 @@ sessionsRouter.get('/:id/export.csv', requireRole('organiser', 'admin'), async (
     if (/^[=+\-@]/.test(t)) t = `'${t}`;
     return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
   };
-  const rows = (await roster(s)).map((r) =>
-    [r.name, r.email, r.status || 'absent', r.source || '', r.first_seen, r.last_seen, r.sightings].map(cell).join(',')
+  const { attendance } = await sessionReport(s);
+  const rows = attendance.map((r) =>
+    [r.name, r.email, r.verdict, r.source || '', Math.round(r.coverage * 100), r.spot, r.reason, r.first_seen, r.last_seen]
+      .map(cell)
+      .join(',')
   );
   const date = new Date(s.started_at).toISOString().slice(0, 10);
   res
     .type('text/csv')
     .attachment(`${course.code}-${date}-session${s.id}.csv`)
-    .send(['name,email,status,source,first_seen,last_seen,sightings', ...rows].join('\n') + '\n');
+    .send(['name,email,status,source,in_range_pct,spot_check,reason,first_seen,last_seen', ...rows].join('\n') + '\n');
 });
 
 // The organiser app polls this every few seconds and re-broadcasts major/minor.
@@ -121,14 +146,14 @@ sessionsRouter.get('/:id/beacon', requireRole('organiser'), async (req, res) => 
   const s = await ownedSession(req);
   if (!s) return res.status(404).json({ error: 'session not found' });
   if (s.status !== 'active') return res.status(409).json({ error: 'session closed' });
-  const now = Date.now();
-  const window = currentWindow(now);
+  const t = now();
+  const window = currentWindow(t);
   res.json({
     uuid: BEACON_UUID,
     major: s.short_code,
     minor: tokenFor(s.secret, window),
     window,
-    msUntilNext: (window + 1) * WINDOW_SECONDS * 1000 - now,
+    msUntilNext: (window + 1) * WINDOW_SECONDS * 1000 - t,
   });
 });
 
@@ -136,9 +161,10 @@ sessionsRouter.post('/:id/close', requireRole('organiser', 'admin'), async (req,
   const s = await ownedSession(req);
   if (!s) return res.status(404).json({ error: 'session not found' });
   const closed = await one(
-    "UPDATE sessions SET status = 'closed', closed_at = now() WHERE id = $1 AND status = 'active' RETURNING *",
-    [s.id]
+    "UPDATE sessions SET status = 'closed', closed_at = $2 WHERE id = $1 AND status = 'active' RETURNING *",
+    [s.id, new Date(now())]
   );
+  if (closed) await persistVerdicts(closed);
   emit(s.id, 'roster');
   res.json(publicSession(closed || s));
 });

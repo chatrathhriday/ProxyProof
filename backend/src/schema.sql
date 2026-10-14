@@ -74,7 +74,29 @@ CREATE TABLE IF NOT EXISTS attendance (
 CREATE UNIQUE INDEX IF NOT EXISTS one_device_per_session
   ON attendance(session_id, device_uid) WHERE device_uid IS NOT NULL;
 
--- Every accepted sighting; Phase 5 builds the presence timeline from these.
+-- Phase 5: presence over the whole class + spot checks.
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS expected_minutes INT NOT NULL DEFAULT 50;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS finalized_at TIMESTAMPTZ;  -- teacher pressed "Approve all"
+
+-- A spot check opens at starts_at. Each marked student gets it with their next sighting
+-- (delivered_at) and must answer with a fingerprint signature before deadline (+20 s).
+-- Students out of range when it opens can still get it for 2 minutes: the make-up check.
+CREATE TABLE IF NOT EXISTS spot_checks (
+  id         SERIAL PRIMARY KEY,
+  session_id INT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  starts_at  TIMESTAMPTZ NOT NULL,
+  auto       BOOLEAN NOT NULL DEFAULT true
+);
+CREATE TABLE IF NOT EXISTS spot_check_results (
+  spot_check_id INT NOT NULL REFERENCES spot_checks(id) ON DELETE CASCADE,
+  student_id    INT NOT NULL REFERENCES users(id),
+  delivered_at  TIMESTAMPTZ NOT NULL,
+  deadline      TIMESTAMPTZ NOT NULL,
+  responded_at  TIMESTAMPTZ,
+  PRIMARY KEY (spot_check_id, student_id)
+);
+
+-- Every accepted sighting; the presence timeline is built from these.
 CREATE TABLE IF NOT EXISTS sightings (
   id          BIGSERIAL PRIMARY KEY,
   session_id  INT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,

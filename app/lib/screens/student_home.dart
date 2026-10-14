@@ -36,6 +36,8 @@ class _StudentHomeState extends State<StudentHome> {
   bool _scanning = false;
   bool _reportedOnce = false;
   bool _reporting = false; // one report at a time (the fingerprint prompt can take a while)
+  bool _spotBusy = false; // spot-check prompt on screen
+  final _spotAnswered = <int>{};
   int _lastTs = 0;
   String _status = 'Tap Start when you are in class.';
   String? _course;
@@ -107,12 +109,11 @@ class _StudentHomeState extends State<StudentHome> {
     final latest = _samples.last; // newest token for the beacon we heard most recently
     final rssi = _samples.where((s) => s.major == latest.major).map((s) => s.rssi).toList();
     // The exact string we sign is the string we send; the server verifies these bytes.
-    _lastTs = DateTime.now().millisecondsSinceEpoch.clamp(_lastTs + 1, 1 << 53);
     final payload = jsonEncode({
       'major': latest.major,
       'minor': latest.minor,
       'rssi': rssi.length > 30 ? rssi.sublist(rssi.length - 30) : rssi,
-      'ts': _lastTs,
+      'ts': _nextTs(),
     });
     try {
       final body = {'payload': payload, 'sig': await DeviceKeys.signDevice(payload)};
@@ -125,8 +126,10 @@ class _StudentHomeState extends State<StudentHome> {
       setState(() {
         _marked = true;
         _course = res['course'] as String?;
-        _status = 'You are marked present ✓';
+        if (!_spotBusy) _status = 'You are marked present ✓';
       });
+      final spot = res['spotCheck'];
+      if (spot != null) _answerSpotCheck(spot['id'] as int, spot['secondsLeft'] as int);
     } on PlatformException catch (e) {
       if (e.code == 'KEY_INVALIDATED') return _deviceChanged();
       setState(
@@ -142,6 +145,39 @@ class _StudentHomeState extends State<StudentHome> {
       setState(() => _status = 'Network problem: $e');
     } finally {
       _reporting = false;
+    }
+  }
+
+  /// Signed payloads need strictly increasing timestamps (the server's replay guard).
+  int _nextTs() => _lastTs = DateTime.now().millisecondsSinceEpoch.clamp(_lastTs + 1, 1 << 53);
+
+  /// Random spot check from the server: the owner must touch the fingerprint sensor within
+  /// 20 s. The answer is signed by the fingerprint key, so only the enrolled finger works.
+  Future<void> _answerSpotCheck(int id, int secondsLeft) async {
+    if (_spotBusy || _spotAnswered.contains(id)) return;
+    _spotBusy = true;
+    HapticFeedback.heavyImpact();
+    setState(() => _status = 'Spot check! Confirm within $secondsLeft s');
+    try {
+      final payload = jsonEncode({'spotCheckId': id, 'ts': _nextTs()});
+      final body = {
+        'payload': payload,
+        'sig': await DeviceKeys.signDevice(payload),
+        'bioSig': await DeviceKeys.signBiometric(payload, 'Spot check — confirm you are still in class'),
+      };
+      await Api.instance.post('/attendance/spot-check', body);
+      _spotAnswered.add(id);
+      setState(() => _status = 'Spot check passed ✓');
+    } on PlatformException catch (e) {
+      if (e.code == 'KEY_INVALIDATED') return _deviceChanged();
+      setState(() => _status = 'Spot check not confirmed. It will ask again if there is still time.');
+    } on ApiException catch (e) {
+      if (e.status == 422) _spotAnswered.add(id); // too late; stop asking
+      setState(() => _status = 'Spot check: ${e.message}');
+    } catch (e) {
+      setState(() => _status = 'Network problem: $e');
+    } finally {
+      _spotBusy = false;
     }
   }
 

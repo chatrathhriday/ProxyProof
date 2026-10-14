@@ -87,7 +87,10 @@ export default function Home({ onOpen }) {
                 <strong>{s.course_code}</strong>
                 <div className="muted small">{date(s.started_at)} · {duration(s.started_at, s.closed_at)}</div>
               </div>
-              <span>{s.present} present</span>
+              <span className="actions">
+                {s.present} present
+                {s.review > 0 && !s.finalized_at && <span className="pill warn">{s.review} to review</span>}
+              </span>
             </button>
           ))}
         </div>
