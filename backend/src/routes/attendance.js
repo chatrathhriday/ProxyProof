@@ -26,7 +26,11 @@ attendanceRouter.post('/sighting', requireRole('student'), async (req, res) => {
     return res.status(429).json({ error: 'too many attempts' });
 
   // 2. Session exists and is live.
-  const session = await one("SELECT * FROM sessions WHERE short_code = $1 AND status = 'active'", [major]);
+  const session = await one(
+    `SELECT s.*, c.code || ' · ' || c.name AS course FROM sessions s JOIN courses c ON c.id = s.course_id
+     WHERE s.short_code = $1 AND s.status = 'active'`,
+    [major]
+  );
   if (!session) return res.status(404).json({ error: 'no active session for this beacon' });
 
   // 3. Student is registered for this course.
@@ -77,5 +81,5 @@ attendanceRouter.post('/sighting', requireRole('student'), async (req, res) => {
     rssiMedian,
   ]);
 
-  res.json({ ok: true, sessionId: session.id, status: existing?.status || 'present', rssiMedian });
+  res.json({ ok: true, sessionId: session.id, course: session.course, status: existing?.status || 'present', rssiMedian });
 });
