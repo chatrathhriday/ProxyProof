@@ -4,6 +4,7 @@ import { requireRole } from '../auth.js';
 import { matchWindow } from '../tokens.js';
 import { allow } from '../rateLimit.js';
 import { verify, MAX_CLOCK_SKEW_MS } from '../signing.js';
+import { emit } from '../live.js';
 
 export const attendanceRouter = express.Router();
 
@@ -98,6 +99,7 @@ attendanceRouter.post('/sighting', requireRole('student'), async (req, res) => {
       if (e.code === '23505') return res.status(409).json({ error: 'device already used in this session' });
       throw e;
     }
+    emit(session.id, 'roster');
   }
 
   await query('INSERT INTO sightings (session_id, student_id, time_window, rssi_median) VALUES ($1, $2, $3, $4)', [
@@ -106,6 +108,7 @@ attendanceRouter.post('/sighting', requireRole('student'), async (req, res) => {
     window,
     rssiMedian,
   ]);
+  emit(session.id, 'seen', { studentId, at: new Date().toISOString(), rssi: rssiMedian });
 
   res.json({ ok: true, sessionId: session.id, course: session.course, status: existing?.status || 'present', rssiMedian });
 });

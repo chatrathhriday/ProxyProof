@@ -9,12 +9,14 @@ const SECRET = () => process.env.JWT_SECRET || 'dev-only-secret-change-me';
 export const signJwt = (user) =>
   jwt.sign({ id: user.id, role: user.role, name: user.name }, SECRET(), { expiresIn: '12h' });
 
+export const verifyJwt = (token) => jwt.verify(token, SECRET());
+
 export function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
   if (!token) return res.status(401).json({ error: 'missing token' });
   try {
-    req.user = jwt.verify(token, SECRET());
+    req.user = verifyJwt(token);
     next();
   } catch {
     res.status(401).json({ error: 'invalid token' });

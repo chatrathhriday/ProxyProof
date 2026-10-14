@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import { query, one } from '../db.js';
 import { requireRole } from '../auth.js';
 import { BEACON_UUID, WINDOW_SECONDS, currentWindow, newSecret, tokenFor } from '../tokens.js';
+import { emit } from '../live.js';
 
 export const sessionsRouter = express.Router();
 
@@ -54,14 +55,64 @@ sessionsRouter.get('/', requireRole('organiser', 'admin'), async (req, res) => {
 sessionsRouter.get('/:id', requireRole('organiser', 'admin'), async (req, res) => {
   const s = await ownedSession(req);
   if (!s) return res.status(404).json({ error: 'session not found' });
-  const attendance = await query(
-    `SELECT u.id AS student_id, u.name, u.email, a.status, a.source, a.first_seen
+  const course = await one('SELECT code, name FROM courses WHERE id = $1', [s.course_id]);
+  res.json({ ...publicSession(s), course, attendance: await roster(s) });
+});
+
+// Every enrolled student with their mark (if any) and presence stats from sightings.
+function roster(s) {
+  return query(
+    `SELECT u.id AS student_id, u.name, u.email, a.status, a.source, a.first_seen,
+            sg.last_seen, sg.last_rssi, COALESCE(sg.sightings, 0)::int AS sightings
      FROM enrollments e JOIN users u ON u.id = e.student_id
      LEFT JOIN attendance a ON a.student_id = u.id AND a.session_id = $1
+     LEFT JOIN LATERAL (
+       SELECT max(created_at) AS last_seen, count(*) AS sightings,
+              (array_agg(rssi_median ORDER BY created_at DESC))[1] AS last_rssi
+       FROM sightings WHERE session_id = $1 AND student_id = u.id
+     ) sg ON true
      WHERE e.course_id = $2 ORDER BY u.name`,
     [s.id, s.course_id]
   );
-  res.json({ ...publicSession(s), attendance });
+}
+
+// Organiser override: mark someone present (phone died) or absent (caught proxying).
+// Manual marks carry no device, so they never block a phone's one-student-per-session rule.
+sessionsRouter.post('/:id/attendance', requireRole('organiser', 'admin'), async (req, res) => {
+  const s = await ownedSession(req);
+  if (!s) return res.status(404).json({ error: 'session not found' });
+  const { studentId, status } = req.body || {};
+  if (!['present', 'absent'].includes(status)) return res.status(400).json({ error: "status must be 'present' or 'absent'" });
+  const enrolled = await one('SELECT 1 FROM enrollments WHERE course_id = $1 AND student_id = $2', [s.course_id, studentId]);
+  if (!enrolled) return res.status(404).json({ error: 'student not enrolled' });
+  await query(
+    `INSERT INTO attendance (session_id, student_id, status, source) VALUES ($1, $2, $3, 'manual')
+     ON CONFLICT (session_id, student_id) DO UPDATE SET status = EXCLUDED.status, source = 'manual'`,
+    [s.id, studentId, status]
+  );
+  emit(s.id, 'roster');
+  res.json({ ok: true });
+});
+
+// CSV for the college register. Cells starting with = + - @ are prefixed with ' so
+// a student named "=HYPERLINK(...)" can't run a formula in the teacher's Excel.
+sessionsRouter.get('/:id/export.csv', requireRole('organiser', 'admin'), async (req, res) => {
+  const s = await ownedSession(req);
+  if (!s) return res.status(404).json({ error: 'session not found' });
+  const course = await one('SELECT code FROM courses WHERE id = $1', [s.course_id]);
+  const cell = (v) => {
+    let t = v == null ? '' : v instanceof Date ? v.toISOString() : String(v);
+    if (/^[=+\-@]/.test(t)) t = `'${t}`;
+    return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+  };
+  const rows = (await roster(s)).map((r) =>
+    [r.name, r.email, r.status || 'absent', r.source || '', r.first_seen, r.last_seen, r.sightings].map(cell).join(',')
+  );
+  const date = new Date(s.started_at).toISOString().slice(0, 10);
+  res
+    .type('text/csv')
+    .attachment(`${course.code}-${date}-session${s.id}.csv`)
+    .send(['name,email,status,source,first_seen,last_seen,sightings', ...rows].join('\n') + '\n');
 });
 
 // The organiser app polls this every few seconds and re-broadcasts major/minor.
@@ -88,5 +139,6 @@ sessionsRouter.post('/:id/close', requireRole('organiser', 'admin'), async (req,
     "UPDATE sessions SET status = 'closed', closed_at = now() WHERE id = $1 AND status = 'active' RETURNING *",
     [s.id]
   );
+  emit(s.id, 'roster');
   res.json(publicSession(closed || s));
 });

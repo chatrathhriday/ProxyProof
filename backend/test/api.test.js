@@ -163,6 +163,32 @@ test('rate limit kicks in', async () => {
   assert.equal(codes[10], 429);
 });
 
+test('manual override and CSV export', async () => {
+  const outsiderId = (await api('GET', '/auth/me', { token: outsider })).body.id;
+  assert.equal((await api('POST', `/sessions/${session.id}/attendance`, { token: s1, body: {} })).status, 403);
+  assert.equal(
+    (await api('POST', `/sessions/${session.id}/attendance`, { token: prof, body: { studentId: outsiderId, status: 'present' } })).status,
+    404 // not enrolled
+  );
+  // s1 caught proxying -> teacher marks absent; then present again
+  const s1Id = (await api('GET', '/auth/me', { token: s1 })).body.id;
+  await api('POST', `/sessions/${session.id}/attendance`, { token: prof, body: { studentId: s1Id, status: 'absent' } });
+  let row = (await api('GET', `/sessions/${session.id}`, { token: prof })).body.attendance.find((a) => a.name === 's1');
+  assert.deepEqual([row.status, row.source], ['absent', 'manual']);
+  assert.ok(row.sightings >= 1 && row.last_seen, 'roster carries sighting stats');
+  await api('POST', `/sessions/${session.id}/attendance`, { token: prof, body: { studentId: s1Id, status: 'present' } });
+
+  // A hostile name is neutralised in the CSV
+  await api('POST', '/auth/register', { body: { email: 'evil@t.test', name: '=HYPERLINK("http://x")', password: 'password123' } });
+  await api('POST', `/courses/${courseId}/enroll`, { token: prof, body: { emails: ['evil@t.test'] } });
+  const res = await fetch(`${base}/sessions/${session.id}/export.csv`, { headers: { authorization: `Bearer ${prof}` } });
+  assert.match(res.headers.get('content-disposition'), /CSE1-.*\.csv/);
+  const csv = await res.text();
+  assert.match(csv.split('\n')[0], /^name,email,status/);
+  assert.match(csv, /\n"'=HYPERLINK\(""http:\/\/x""\)",evil@t\.test,absent/);
+  assert.match(csv, /\ns1,s1@t\.test,present,manual/);
+});
+
 test('session detail shows roster with statuses; close stops marking', async () => {
   resetLimits();
   const d = await api('GET', `/sessions/${session.id}`, { token: prof });
