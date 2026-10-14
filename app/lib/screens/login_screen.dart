@@ -51,7 +51,10 @@ class _LoginScreenState extends State<LoginScreen> {
                 Text('ProxyProof', textAlign: TextAlign.center, style: Theme.of(context).textTheme.headlineMedium),
                 const SizedBox(height: 32),
                 if (_register) ...[
-                  TextField(controller: _name, decoration: const InputDecoration(labelText: 'Full name')),
+                  TextField(
+                    controller: _name,
+                    decoration: const InputDecoration(labelText: 'Full name'),
+                  ),
                   const SizedBox(height: 12),
                 ],
                 TextField(
@@ -60,7 +63,11 @@ class _LoginScreenState extends State<LoginScreen> {
                   decoration: const InputDecoration(labelText: 'Email'),
                 ),
                 const SizedBox(height: 12),
-                TextField(controller: _password, obscureText: true, decoration: const InputDecoration(labelText: 'Password')),
+                TextField(
+                  controller: _password,
+                  obscureText: true,
+                  decoration: const InputDecoration(labelText: 'Password'),
+                ),
                 const SizedBox(height: 24),
                 if (_error != null)
                   Padding(
@@ -78,7 +85,12 @@ class _LoginScreenState extends State<LoginScreen> {
                 ExpansionTile(
                   title: const Text('Server'),
                   tilePadding: EdgeInsets.zero,
-                  children: [TextField(controller: _server, decoration: const InputDecoration(labelText: 'API URL'))],
+                  children: [
+                    TextField(
+                      controller: _server,
+                      decoration: const InputDecoration(labelText: 'API URL'),
+                    ),
+                  ],
                 ),
               ],
             ),

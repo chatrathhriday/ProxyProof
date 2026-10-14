@@ -15,12 +15,14 @@ class IBeacon {
 
   /// Manufacturer data payload (without the company id, which the BLE API takes separately).
   static Uint8List encode(String uuid, int major, int minor) => Uint8List.fromList([
-        ..._prefix,
-        ...uuidBytes(uuid),
-        major >> 8, major & 0xff,
-        minor >> 8, minor & 0xff,
-        measuredPower & 0xff,
-      ]);
+    ..._prefix,
+    ...uuidBytes(uuid),
+    major >> 8,
+    major & 0xff,
+    minor >> 8,
+    minor & 0xff,
+    measuredPower & 0xff,
+  ]);
 
   /// Bytes a scan filter can match on: prefix + our UUID, so we ignore every other beacon.
   static List<int> filterPrefix(String uuid) => [..._prefix, ...uuidBytes(uuid)];

@@ -23,7 +23,9 @@ class _OrganiserHomeState extends State<OrganiserHome> {
 
   Future<void> _open(int sessionId, String title) async {
     await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => BroadcastScreen(sessionId: sessionId, title: title)),
+      MaterialPageRoute(
+        builder: (_) => BroadcastScreen(sessionId: sessionId, title: title),
+      ),
     );
     setState(() => _data = _load());
   }

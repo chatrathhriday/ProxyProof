@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 
 import 'api.dart';
+import 'screens/admin_home.dart';
+import 'screens/device_gate.dart';
 import 'screens/login_screen.dart';
 import 'screens/organiser_home.dart';
-import 'screens/student_home.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -34,8 +35,9 @@ class HomeRouter extends StatelessWidget {
     final api = Api.instance;
     if (api.token == null) return const LoginScreen();
     return switch (api.role) {
-      'organiser' || 'admin' => const OrganiserHome(),
-      _ => const StudentHome(),
+      'organiser' => const OrganiserHome(),
+      'admin' => const AdminHome(),
+      _ => const DeviceGate(), // students always pass the device check first
     };
   }
 }
@@ -44,8 +46,5 @@ class HomeRouter extends StatelessWidget {
 Future<void> logout(BuildContext context) async {
   await Api.instance.logout();
   if (!context.mounted) return;
-  Navigator.of(context).pushAndRemoveUntil(
-    MaterialPageRoute(builder: (_) => const LoginScreen()),
-    (_) => false,
-  );
+  Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const LoginScreen()), (_) => false);
 }

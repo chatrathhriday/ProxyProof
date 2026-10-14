@@ -4,3 +4,4 @@ node_modules/
 *.log
 build/
 .dart_tool/
+tools/.laptop_keys/

@@ -132,38 +132,55 @@ class _BroadcastScreenState extends State<BroadcastScreen> {
     final t = Theme.of(context).textTheme;
     return Scaffold(
       appBar: AppBar(title: Text(widget.title)),
-      body: SafeArea(child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Spacer(),
-            Icon(Icons.sensors, size: 96, color: _minor == null ? Colors.grey : Theme.of(context).colorScheme.primary),
-            const SizedBox(height: 16),
-            Text(_minor == null ? 'Starting beaconâ€¦' : 'Broadcasting', textAlign: TextAlign.center, style: t.headlineSmall),
-            const SizedBox(height: 32),
-            Text('$_present / $_total', textAlign: TextAlign.center, style: t.displayMedium),
-            Text('students present', textAlign: TextAlign.center, style: t.bodyLarge),
-            const SizedBox(height: 24),
-            if (_major != null)
-              Text('Code $_major Â· token $_minor (rotates every 10 s)',
-                  textAlign: TextAlign.center, style: t.bodySmall),
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 12),
-                child: Text(_error!, textAlign: TextAlign.center, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Spacer(),
+              Icon(
+                Icons.sensors,
+                size: 96,
+                color: _minor == null ? Colors.grey : Theme.of(context).colorScheme.primary,
               ),
-            const Spacer(),
-            const Text('Keep this screen open during class.', textAlign: TextAlign.center),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: _closing ? null : _close,
-              icon: const Icon(Icons.stop_circle_outlined),
-              label: const Text('Close session'),
-            ),
-          ],
+              const SizedBox(height: 16),
+              Text(
+                _minor == null ? 'Starting beacon…' : 'Broadcasting',
+                textAlign: TextAlign.center,
+                style: t.headlineSmall,
+              ),
+              const SizedBox(height: 32),
+              Text('$_present / $_total', textAlign: TextAlign.center, style: t.displayMedium),
+              Text('students present', textAlign: TextAlign.center, style: t.bodyLarge),
+              const SizedBox(height: 24),
+              if (_major != null)
+                Text(
+                  'Code $_major · token $_minor (rotates every 10 s)',
+                  textAlign: TextAlign.center,
+                  style: t.bodySmall,
+                ),
+              if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: Text(
+                    _error!,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Theme.of(context).colorScheme.error),
+                  ),
+                ),
+              const Spacer(),
+              const Text('Keep this screen open during class.', textAlign: TextAlign.center),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: _closing ? null : _close,
+                icon: const Icon(Icons.stop_circle_outlined),
+                label: const Text('Close session'),
+              ),
+            ],
+          ),
         ),
-      )),
+      ),
     );
   }
 }

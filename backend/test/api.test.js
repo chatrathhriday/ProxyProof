@@ -6,6 +6,7 @@ import { createApp } from '../src/app.js';
 import { createUser } from '../src/auth.js';
 import { resetLimits } from '../src/rateLimit.js';
 import { tokenFor, currentWindow, matchWindow } from '../src/tokens.js';
+import { makeDevice } from '../scripts/simDevice.js';
 
 let server, base;
 
@@ -19,7 +20,11 @@ async function api(method, path, { token, body } = {}) {
 }
 const login = async (email) => (await api('POST', '/auth/login', { body: { email, password: 'password123' } })).body.token;
 
-let prof, s1, s2, outsider, courseId, session, beacon;
+let prof, admin, s1, s2, outsider, courseId, session, beacon;
+const phoneA = makeDevice('Phone A'); // s1's phone
+const phoneB = makeDevice('Phone B'); // s2's phone
+const phoneC = makeDevice('Phone C'); // outsider's phone
+const phoneB2 = makeDevice('Phone B2'); // s2's replacement phone
 
 before(async () => {
   delete process.env.DATABASE_URL;
@@ -28,7 +33,9 @@ before(async () => {
   server = createApp().listen(0);
   base = `http://localhost:${server.address().port}`;
   await createUser({ email: 'prof@t.test', name: 'Prof', password: 'password123', role: 'organiser' });
+  await createUser({ email: 'admin@t.test', name: 'Admin', password: 'password123', role: 'admin' });
   prof = await login('prof@t.test');
+  admin = await login('admin@t.test');
   for (const e of ['s1', 's2', 'out']) await api('POST', '/auth/register', { body: { email: `${e}@t.test`, name: e, password: 'password123' } });
   [s1, s2, outsider] = await Promise.all(['s1', 's2', 'out'].map((e) => login(`${e}@t.test`)));
 });
@@ -42,6 +49,21 @@ test('roles are enforced', async () => {
   assert.equal((await api('POST', '/courses', { token: s1, body: { code: 'X', name: 'X' } })).status, 403);
   assert.equal((await api('GET', '/courses')).status, 401);
   assert.equal((await api('POST', '/auth/login', { body: { email: 's1@t.test', password: 'nope' } })).status, 401);
+  assert.equal((await api('GET', '/devices/pending', { token: prof })).status, 403);
+});
+
+test('device binding: first phone auto-approved, phone cannot be shared', async () => {
+  const r1 = await api('POST', '/devices/register', { token: s1, body: phoneA.registration });
+  assert.equal(r1.status, 201);
+  assert.equal(r1.body.status, 'approved');
+  // idempotent
+  assert.equal((await api('POST', '/devices/register', { token: s1, body: phoneA.registration })).body.status, 'approved');
+  // s2 tries to register s1's phone (same keys) -> refused
+  assert.equal((await api('POST', '/devices/register', { token: s2, body: phoneA.registration })).status, 409);
+  assert.equal((await api('POST', '/devices/register', { token: s2, body: phoneB.registration })).body.status, 'approved');
+  assert.equal((await api('POST', '/devices/register', { token: outsider, body: phoneC.registration })).body.status, 'approved');
+  // garbage keys rejected
+  assert.equal((await api('POST', '/devices/register', { token: s1, body: { devicePublicKey: 'abc', bioPublicKey: 'def' } })).status, 400);
 });
 
 test('organiser creates course, enrolls students, starts session', async () => {
@@ -62,36 +84,62 @@ test('organiser creates course, enrolls students, starts session', async () => {
   beacon = b.body;
 });
 
-const sight = (token, over = {}) =>
-  api('POST', '/attendance/sighting', {
-    token,
-    body: { major: beacon.major, minor: beacon.minor, rssi: [-60, -62, -58], deviceUid: 'phone-A', ...over },
-  });
+const reading = (over = {}) => ({ major: beacon.major, minor: beacon.minor, rssi: [-60, -62, -58], ...over });
+const sight = (token, phone, over = {}, opts = {}) =>
+  api('POST', '/attendance/sighting', { token, body: phone.sighting(reading(over), opts) });
 
-test('valid sighting marks present', async () => {
-  const r = await sight(s1);
+test('first mark needs fingerprint; later sightings only the device key', async () => {
+  resetLimits();
+  const noBio = await sight(s1, phoneA);
+  assert.equal(noBio.status, 428);
+  assert.equal(noBio.body.code, 'BIO_REQUIRED');
+  const r = await sight(s1, phoneA, {}, { fingerprint: true });
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.equal(r.body.status, 'present');
-  const again = await sight(s1); // repeated sightings feed the timeline, don't duplicate
-  assert.equal(again.status, 200);
+  assert.equal((await sight(s1, phoneA)).status, 200);
+});
+
+test('signatures: wrong key, tampered payload, replay', async () => {
+  resetLimits();
+  // s1's account but signed by phone B's key (stolen password on another phone)
+  assert.equal((await sight(s1, phoneB, {}, { fingerprint: true })).status, 401);
+  // payload edited after signing (e.g. RSSI boosted)
+  const body = phoneA.sighting(reading({ rssi: [-90] }));
+  body.payload = body.payload.replace('-90', '-40');
+  assert.equal((await api('POST', '/attendance/sighting', { token: s1, body })).status, 401);
+  // exact same signed request sent twice
+  const once = phoneA.sighting(reading());
+  assert.equal((await api('POST', '/attendance/sighting', { token: s1, body: once })).status, 200);
+  assert.equal((await api('POST', '/attendance/sighting', { token: s1, body: once })).status, 409);
+  // old timestamp
+  assert.equal((await sight(s1, phoneA, {}, { ts: Date.now() - 5 * 60_000 })).status, 422);
 });
 
 test('rejects: wrong token, too far, not enrolled, unknown session', async () => {
   resetLimits();
-  assert.equal((await sight(s2, { minor: (beacon.minor + 1) % 65536, deviceUid: 'phone-B' })).status, 422);
-  const far = await sight(s2, { rssi: [-90, -88, -60], deviceUid: 'phone-B' }); // median -88
+  const bio = { fingerprint: true };
+  assert.equal((await sight(s2, phoneB, { minor: (beacon.minor + 1) % 65536 }, bio)).status, 422);
+  const far = await sight(s2, phoneB, { rssi: [-90, -88, -60] }, bio); // median -88
   assert.equal(far.status, 422);
   assert.equal(far.body.rssiMedian, -88);
-  assert.equal((await sight(outsider, { deviceUid: 'phone-C' })).status, 403);
-  assert.equal((await sight(s2, { major: (beacon.major + 1) % 65536, deviceUid: 'phone-B' })).status, 404);
+  assert.equal((await sight(outsider, phoneC, {}, bio)).status, 403);
+  assert.equal((await sight(s2, phoneB, { major: (beacon.major + 1) % 65536 }, bio)).status, 404);
 });
 
-test('one device cannot mark two students (proxy via borrowed phone)', async () => {
+test('new phone needs admin approval; approval retires the old phone', async () => {
   resetLimits();
-  const r = await sight(s2, { deviceUid: 'phone-A' });
-  assert.equal(r.status, 409);
-  // s1 also can't switch to a second phone mid-session
-  assert.equal((await sight(s1, { deviceUid: 'phone-Z' })).status, 409);
+  const reg = await api('POST', '/devices/register', { token: s2, body: phoneB2.registration });
+  assert.equal(reg.body.status, 'pending');
+  // still marks with the old phone until approved; new phone is refused
+  assert.equal((await sight(s2, phoneB2, {}, { fingerprint: true })).status, 401);
+
+  const pending = (await api('GET', '/devices/pending', { token: admin })).body;
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].current_model, 'Phone B');
+  assert.equal((await api('POST', `/devices/${pending[0].id}/approve`, { token: admin })).body.status, 'approved');
+
+  assert.equal((await sight(s2, phoneB, {}, { fingerprint: true })).status, 401); // old phone now dead
+  assert.equal((await sight(s2, phoneB2, {}, { fingerprint: true })).status, 200);
 });
 
 test('freshness: window ±1 accepted, older tokens rejected', () => {
@@ -110,8 +158,8 @@ test('freshness: window ±1 accepted, older tokens rejected', () => {
 test('rate limit kicks in', async () => {
   resetLimits();
   const codes = [];
-  for (let i = 0; i < 12; i++) codes.push((await sight(s2, { minor: (beacon.minor + 1) % 65536, deviceUid: 'phone-B' })).status);
-  assert.ok(codes.slice(0, 10).every((c) => c === 422));
+  for (let i = 0; i < 12; i++) codes.push((await sight(s2, phoneB2, { minor: (beacon.minor + 1) % 65536 })).status);
+  assert.ok(codes.slice(0, 10).every((c) => c === 422), codes.join(','));
   assert.equal(codes[10], 429);
 });
 
@@ -120,9 +168,9 @@ test('session detail shows roster with statuses; close stops marking', async () 
   const d = await api('GET', `/sessions/${session.id}`, { token: prof });
   const byName = Object.fromEntries(d.body.attendance.map((a) => [a.name, a.status]));
   assert.equal(byName.s1, 'present');
-  assert.equal(byName.s2, null);
+  assert.equal(byName.s2, 'present');
 
   assert.equal((await api('POST', `/sessions/${session.id}/close`, { token: prof })).body.status, 'closed');
-  assert.equal((await sight(s1)).status, 404);
+  assert.equal((await sight(s1, phoneA)).status, 404);
   assert.equal((await api('GET', `/sessions/${session.id}/beacon`, { token: prof })).status, 409);
 });

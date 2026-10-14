@@ -1,19 +1,19 @@
 import 'dart:convert';
-import 'dart:math';
 
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Thrown for any non-2xx response; [message] is the server's `error` field.
 class ApiException implements Exception {
-  ApiException(this.status, this.message);
+  ApiException(this.status, this.message, [this.code]);
   final int status;
   final String message;
+  final String? code; // machine-readable reason, e.g. BIO_REQUIRED
   @override
   String toString() => message;
 }
 
-/// Thin JSON client. Holds the server URL, the JWT and this install's device id.
+/// Thin JSON client. Holds the server URL and the JWT.
 class Api {
   Api._();
   static final Api instance = Api._();
@@ -27,7 +27,6 @@ class Api {
   String baseUrl = defaultBaseUrl;
   String? token;
   Map<String, dynamic>? user;
-  late String deviceUid;
 
   Future<void> load() async {
     _prefs = await SharedPreferences.getInstance();
@@ -35,9 +34,6 @@ class Api {
     token = _prefs.getString('token');
     final u = _prefs.getString('user');
     user = u == null ? null : jsonDecode(u) as Map<String, dynamic>;
-    // Random per-install id. Phase 3 replaces "trust this id" with a Keystore-backed key.
-    deviceUid = _prefs.getString('deviceUid') ?? _randomHex(16);
-    await _prefs.setString('deviceUid', deviceUid);
   }
 
   String get role => user?['role'] as String? ?? '';
@@ -68,21 +64,16 @@ class Api {
   Future<dynamic> post(String path, [Object? body]) => _send('POST', path, body);
 
   Future<dynamic> _send(String method, String path, [Object? body]) async {
-    final req = http.Request(method, Uri.parse('$baseUrl$path'))
-      ..headers['content-type'] = 'application/json';
+    final req = http.Request(method, Uri.parse('$baseUrl$path'))..headers['content-type'] = 'application/json';
     if (token != null) req.headers['authorization'] = 'Bearer $token';
     if (body != null) req.body = jsonEncode(body);
     final streamed = await req.send().timeout(const Duration(seconds: 10));
     final res = await http.Response.fromStream(streamed);
     final data = res.body.isEmpty ? null : jsonDecode(res.body);
     if (res.statusCode >= 400) {
-      throw ApiException(res.statusCode, (data is Map ? data['error'] : null) ?? 'HTTP ${res.statusCode}');
+      final map = data is Map ? data : const {};
+      throw ApiException(res.statusCode, map['error'] as String? ?? 'HTTP ${res.statusCode}', map['code'] as String?);
     }
     return data;
-  }
-
-  static String _randomHex(int bytes) {
-    final r = Random.secure();
-    return List.generate(bytes, (_) => r.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
   }
 }

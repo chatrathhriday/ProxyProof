@@ -4,6 +4,7 @@ import { authRouter } from './auth.js';
 import { coursesRouter } from './routes/courses.js';
 import { sessionsRouter } from './routes/sessions.js';
 import { attendanceRouter } from './routes/attendance.js';
+import { devicesRouter } from './routes/devices.js';
 
 export function createApp() {
   const app = express();
@@ -17,12 +18,14 @@ export function createApp() {
       <h1>ProxyProof API</h1><p>✅ Running. This is the backend only; the app and dashboard talk to it.</p>
       <ul><li>POST /auth/register, /auth/login</li><li>GET/POST /courses, POST /courses/:id/enroll</li>
       <li>POST /sessions, GET /sessions/:id, GET /sessions/:id/beacon, POST /sessions/:id/close</li>
-      <li>POST /attendance/sighting</li></ul>`)
+      <li>POST /attendance/sighting (signed)</li>
+      <li>POST /devices/register, GET /devices/pending, POST /devices/:id/approve|reject</li></ul>`)
   );
   app.use('/auth', authRouter);
   app.use('/courses', coursesRouter);
   app.use('/sessions', sessionsRouter);
   app.use('/attendance', attendanceRouter);
+  app.use('/devices', devicesRouter);
 
   // Express 5 forwards async errors here.
   app.use((err, req, res, next) => {

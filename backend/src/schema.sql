@@ -36,6 +36,13 @@ CREATE TABLE IF NOT EXISTS devices (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS one_approved_device_per_user
   ON devices(user_id) WHERE status = 'approved';
+-- Phase 3: two Keystore keys per phone. public_key = "device key" (signs every request,
+-- no prompt); bio_public_key = "fingerprint key" (biometric-gated, dies on new enrolment).
+-- device_uid = sha256(device public key), so the id can't be faked without the key.
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS bio_public_key TEXT;
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS model TEXT;
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS last_ts BIGINT NOT NULL DEFAULT 0;  -- replay guard
+CREATE INDEX IF NOT EXISTS devices_by_uid ON devices(device_uid);
 
 CREATE TABLE IF NOT EXISTS sessions (
   id             SERIAL PRIMARY KEY,

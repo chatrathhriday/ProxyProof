@@ -47,3 +47,8 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // BiometricPrompt + CryptoObject: the fingerprint unlocks a Keystore key for one signature.
+    implementation("androidx.biometric:biometric:1.1.0")
+}

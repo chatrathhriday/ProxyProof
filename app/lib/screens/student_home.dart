@@ -1,15 +1,20 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 import '../api.dart';
+import '../device_keys.dart';
 import '../ibeacon.dart';
 import '../main.dart';
 import '../permissions.dart';
+import 'device_gate.dart';
 
-/// Student phone scans for our beacon, collects RSSI samples, and every ~10 s reports
-/// (major, latest minor, samples) to the server, which decides whether to mark.
+/// Student phone scans for our beacon, collects RSSI samples, and every ~10 s sends a
+/// signed report (major, latest minor, samples, timestamp). The first report in a class
+/// also carries a fingerprint-key signature; the server decides whether to mark.
 class StudentHome extends StatefulWidget {
   const StudentHome({super.key});
 
@@ -27,8 +32,11 @@ class _StudentHomeState extends State<StudentHome> {
   StreamSubscription<List<ScanResult>>? _sub;
   Timer? _reportTimer;
   final _samples = <_Sample>[];
+  final _checkedIn = <int>{}; // session codes (majors) where the fingerprint was accepted
   bool _scanning = false;
   bool _reportedOnce = false;
+  bool _reporting = false; // one report at a time (the fingerprint prompt can take a while)
+  int _lastTs = 0;
   String _status = 'Tap Start when you are in class.';
   String? _course;
   bool _marked = false;
@@ -71,7 +79,7 @@ class _StudentHomeState extends State<StudentHome> {
     _reportTimer = Timer.periodic(const Duration(seconds: 10), (_) => _report());
     setState(() {
       _scanning = true;
-      _status = 'Looking for your class beaconâ€¦';
+      _status = 'Looking for your class beacon…';
     });
   }
 
@@ -88,40 +96,74 @@ class _StudentHomeState extends State<StudentHome> {
   }
 
   Future<void> _report() async {
+    if (_reporting) return;
     final cutoff = DateTime.now().subtract(const Duration(seconds: 10));
     _samples.removeWhere((s) => s.at.isBefore(cutoff));
     if (_samples.isEmpty) {
       if (_scanning) setState(() => _status = 'No class beacon nearby.');
       return;
     }
+    _reporting = true;
     final latest = _samples.last; // newest token for the beacon we heard most recently
     final rssi = _samples.where((s) => s.major == latest.major).map((s) => s.rssi).toList();
+    // The exact string we sign is the string we send; the server verifies these bytes.
+    _lastTs = DateTime.now().millisecondsSinceEpoch.clamp(_lastTs + 1, 1 << 53);
+    final payload = jsonEncode({
+      'major': latest.major,
+      'minor': latest.minor,
+      'rssi': rssi.length > 30 ? rssi.sublist(rssi.length - 30) : rssi,
+      'ts': _lastTs,
+    });
     try {
-      final res = await Api.instance.post('/attendance/sighting', {
-        'major': latest.major,
-        'minor': latest.minor,
-        'rssi': rssi.length > 30 ? rssi.sublist(rssi.length - 30) : rssi,
-        'deviceUid': Api.instance.deviceUid,
-      });
+      final body = {'payload': payload, 'sig': await DeviceKeys.signDevice(payload)};
+      if (!_checkedIn.contains(latest.major)) {
+        setState(() => _status = 'Class found — confirm with your fingerprint');
+        body['bioSig'] = await DeviceKeys.signBiometric(payload, 'Mark your attendance');
+      }
+      final res = await Api.instance.post('/attendance/sighting', body);
+      _checkedIn.add(latest.major);
       setState(() {
         _marked = true;
         _course = res['course'] as String?;
-        _status = 'You are marked present âœ“';
+        _status = 'You are marked present ✓';
       });
+    } on PlatformException catch (e) {
+      if (e.code == 'KEY_INVALIDATED') return _deviceChanged();
+      setState(
+        () => _status = e.code == 'BIO_CANCELLED'
+            ? 'Fingerprint needed to mark attendance. Will ask again in 10 s.'
+            : 'Key error: ${e.message}',
+      );
+    } on ApiException catch (e) {
+      if (e.code == 'BIO_REQUIRED') _checkedIn.remove(latest.major); // ask again next round
+      if (e.code == 'DEVICE_NOT_APPROVED' || e.code == 'BAD_SIGNATURE') return _deviceChanged();
+      setState(() => _status = _friendly(e));
     } catch (e) {
-      setState(() => _status = e is ApiException ? _friendly(e) : 'Network problem: $e');
+      setState(() => _status = 'Network problem: $e');
+    } finally {
+      _reporting = false;
     }
   }
 
+  /// Keys no longer valid (new fingerprint enrolled) or device revoked: start over with
+  /// fresh keys, which the server treats as a new phone needing admin approval.
+  Future<void> _deviceChanged() async {
+    await _stop();
+    await DeviceKeys.reset();
+    if (!mounted) return;
+    Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const DeviceGate()));
+  }
+
   String _friendly(ApiException e) => switch (e.status) {
-        422 when e.message.contains('far') => 'Move closer to the front â€” signal too weak.',
-        422 => 'Beacon code expired, retryingâ€¦',
-        403 => 'You are not enrolled in this class.',
-        404 => 'This class session has ended.',
-        409 => 'This phone was already used for someone else in this class.',
-        429 => 'Slow down â€” too many attempts.',
-        _ => e.message,
-      };
+    422 when e.message.contains('far') => 'Move closer to the front — signal too weak.',
+    422 => 'Beacon code expired, retrying…',
+    428 => 'Fingerprint needed — will ask again.',
+    403 => 'You are not enrolled in this class.',
+    404 => 'This class session has ended.',
+    409 => 'This phone was already used for someone else in this class.',
+    429 => 'Slow down — too many attempts.',
+    _ => e.message,
+  };
 
   @override
   void dispose() {
@@ -140,31 +182,33 @@ class _StudentHomeState extends State<StudentHome> {
         title: Text('Hi, ${Api.instance.user?['name'] ?? ''}'),
         actions: [IconButton(icon: const Icon(Icons.logout), onPressed: () => logout(context))],
       ),
-      body: SafeArea(child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Spacer(),
-            Icon(
-              _marked ? Icons.check_circle : (_scanning ? Icons.bluetooth_searching : Icons.bluetooth),
-              size: 96,
-              color: _marked ? Colors.green : (_scanning ? scheme.primary : Colors.grey),
-            ),
-            const SizedBox(height: 16),
-            Text(_status, textAlign: TextAlign.center, style: t.titleLarge),
-            if (_course != null) Text(_course!, textAlign: TextAlign.center, style: t.bodyLarge),
-            if (_scanning && _lastRssi != null)
-              Text('Signal: $_lastRssi dBm', textAlign: TextAlign.center, style: t.bodySmall),
-            const Spacer(),
-            FilledButton.icon(
-              onPressed: _scanning ? _stop : _start,
-              icon: Icon(_scanning ? Icons.stop : Icons.play_arrow),
-              label: Text(_scanning ? 'Stop' : 'Start attendance'),
-            ),
-          ],
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Spacer(),
+              Icon(
+                _marked ? Icons.check_circle : (_scanning ? Icons.bluetooth_searching : Icons.bluetooth),
+                size: 96,
+                color: _marked ? Colors.green : (_scanning ? scheme.primary : Colors.grey),
+              ),
+              const SizedBox(height: 16),
+              Text(_status, textAlign: TextAlign.center, style: t.titleLarge),
+              if (_course != null) Text(_course!, textAlign: TextAlign.center, style: t.bodyLarge),
+              if (_scanning && _lastRssi != null)
+                Text('Signal: $_lastRssi dBm', textAlign: TextAlign.center, style: t.bodySmall),
+              const Spacer(),
+              FilledButton.icon(
+                onPressed: _scanning ? _stop : _start,
+                icon: Icon(_scanning ? Icons.stop : Icons.play_arrow),
+                label: Text(_scanning ? 'Stop' : 'Start attendance'),
+              ),
+            ],
+          ),
         ),
-      )),
+      ),
     );
   }
 }
