@@ -49,11 +49,11 @@ export default function SessionView({ id, onBack }) {
     return () => socket.disconnect()
   }, [id, load])
 
-  // "In range %" moves with time even without events, so refresh it while live.
+  // "In range %" and the beacon status move with time even without events, so refresh while live.
   const live = s?.status === 'active'
   useEffect(() => {
     if (!live) return
-    const t = setInterval(load, 30000)
+    const t = setInterval(load, 15000)
     return () => clearInterval(t)
   }, [live, load])
 
@@ -147,6 +147,16 @@ export default function SessionView({ id, onBack }) {
           )}
         </div>
       )}
+
+      {live &&
+        (s.beaconActive ? (
+          <p className="muted small">📡 Beacon broadcasting — students' phones can mark themselves.</p>
+        ) : (
+          <p className="banner">
+            ⚠ Not broadcasting yet. A browser can't send Bluetooth, so open this session in the ProxyProof app on the
+            teacher's phone (Live now → tap the session). Phones are marked only while a beacon is on.
+          </p>
+        ))}
 
       {live && s.spotChecks.open && (
         <p className="banner">Spot check running — each student in range has 20 s to confirm with their fingerprint.</p>

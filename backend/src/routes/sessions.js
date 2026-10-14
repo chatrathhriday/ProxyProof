@@ -19,6 +19,11 @@ async function ownedSession(req) {
 
 const publicSession = ({ secret, ...rest }) => rest; // the secret never leaves the server
 
+// When did a beacon device (teacher phone / laptop) last fetch a token for each session?
+// The dashboard can't broadcast BLE itself, so it shows whether anything is broadcasting.
+const lastBeaconFetch = new Map();
+const beaconActive = (id) => now() - (lastBeaconFetch.get(id) || 0) < 25_000;
+
 // Defaults keep the teacher's flow to one tap; thresholds live under "Advanced".
 sessionsRouter.post('/', requireRole('organiser'), async (req, res) => {
   const { courseId, rssiThreshold = -75, presencePct = 80, expectedMinutes = 50 } = req.body || {};
@@ -65,7 +70,7 @@ sessionsRouter.get('/:id', requireRole('organiser', 'admin'), async (req, res) =
   const s = await ownedSession(req);
   if (!s) return res.status(404).json({ error: 'session not found' });
   const course = await one('SELECT code, name FROM courses WHERE id = $1', [s.course_id]);
-  res.json({ ...publicSession(s), course, ...(await sessionReport(s)) });
+  res.json({ ...publicSession(s), course, beaconActive: beaconActive(s.id), ...(await sessionReport(s)) });
 });
 
 // Organiser override: mark someone present (phone died) or absent (caught proxying).
@@ -148,6 +153,8 @@ sessionsRouter.get('/:id/beacon', requireRole('organiser'), async (req, res) => 
   if (s.status !== 'active') return res.status(409).json({ error: 'session closed' });
   const t = now();
   const window = currentWindow(t);
+  if (!beaconActive(s.id)) emit(s.id, 'roster'); // dashboard: "broadcasting" turns on
+  lastBeaconFetch.set(s.id, t);
   res.json({
     uuid: BEACON_UUID,
     major: s.short_code,
