@@ -27,7 +27,9 @@ has sensible defaults and stays out of the way.
 ## Student experience
 
 Log in once (the phone is bound to the account), tap **Start attendance** when you sit down, touch the
-fingerprint sensor once. A random spot check may ask for the fingerprint once more during class.
+fingerprint sensor once, **then lock the phone and put it away** — a foreground service (the small
+"ProxyProof is taking attendance" notification) keeps scanning and reporting in the background.
+A random spot check may buzz the phone once more; tap the notification and touch the sensor within 20 s.
 The **My attendance** screen shows the percentage per course and a **"Can I bunk?"** calculator for the 75% rule.
 
 ---
@@ -185,7 +187,8 @@ cd app && flutter run         # then: adb reverse tcp:3000 tcp:3000
 Release APK: built by GitHub Actions (`.github/workflows/apk.yml`) and attached to Releases on `v*` tags.
 
 ## Known limitations / next steps
-- The student app scans while it is open (screen can dim); a foreground service would allow full background scanning.
+- Background attendance stops if the student swipes the app away (the foreground service is tied to the app's task);
+  some phones also need "battery optimisation" turned off for the app, which it asks for on first start.
 - Single Render instance: the rate limiter is in memory (Redis for multiple instances).
 - Key attestation / Play Integrity would prove keys really live in hardware on unrooted devices.
 - Demo accounts and passwords are seeded on purpose; disable `SEED_DEMO` for real use.

@@ -4,8 +4,10 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 import '../api.dart';
+import '../background.dart';
 import '../device_keys.dart';
 import '../ibeacon.dart';
 import '../main.dart';
@@ -16,6 +18,7 @@ import 'history_screen.dart';
 /// Student phone scans for our beacon, collects RSSI samples, and every ~10 s sends a
 /// signed report (major, latest minor, samples, timestamp). The first report in a class
 /// also carries a fingerprint-key signature; the server decides whether to mark.
+/// Keeps running with the screen locked via a foreground service (see background.dart).
 class StudentHome extends StatefulWidget {
   const StudentHome({super.key});
 
@@ -29,8 +32,12 @@ class _Sample {
   final DateTime at;
 }
 
-class _StudentHomeState extends State<StudentHome> {
+class _StudentHomeState extends State<StudentHome> with WidgetsBindingObserver {
   StreamSubscription<List<ScanResult>>? _sub;
+  // Fingerprint prompts can only show while the app is on screen. In the background we
+  // notify + vibrate and keep what's pending until the student opens the app.
+  bool _inForeground = true;
+  ({int id, DateTime deadline})? _pendingSpot;
   Timer? _reportTimer;
   final _samples = <_Sample>[];
   final _checkedIn = <int>{}; // session codes (majors) where the fingerprint was accepted
@@ -45,9 +52,30 @@ class _StudentHomeState extends State<StudentHome> {
   bool _marked = false;
   int? _lastRssi;
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _inForeground = state == AppLifecycleState.resumed;
+    if (!_inForeground || !_scanning) return;
+    // Back on screen: answer a waiting spot check, or do the fingerprint check-in now.
+    final spot = _pendingSpot;
+    if (spot != null && spot.deadline.isAfter(DateTime.now())) {
+      _answerSpotCheck(spot.id, spot.deadline.difference(DateTime.now()).inSeconds);
+    } else {
+      _pendingSpot = null;
+      _report();
+    }
+  }
+
   Future<void> _start() async {
     final problem = await ensureBlePermissions(advertise: false);
     if (problem != null) return setState(() => _status = problem);
+    await Background.requestPermissions();
     if (FlutterBluePlus.adapterStateNow != BluetoothAdapterState.on) {
       try {
         await FlutterBluePlus.turnOn();
@@ -80,6 +108,7 @@ class _StudentHomeState extends State<StudentHome> {
       androidScanMode: AndroidScanMode.lowLatency,
     );
     _reportTimer = Timer.periodic(const Duration(seconds: 10), (_) => _report());
+    await Background.start();
     setState(() {
       _scanning = true;
       _status = 'Looking for your class beacon…';
@@ -87,6 +116,8 @@ class _StudentHomeState extends State<StudentHome> {
   }
 
   Future<void> _stop() async {
+    await Background.stop();
+    _pendingSpot = null;
     _reportTimer?.cancel();
     await _sub?.cancel();
     await FlutterBluePlus.stopScan();
@@ -117,8 +148,15 @@ class _StudentHomeState extends State<StudentHome> {
       'ts': _nextTs(),
     });
     try {
+      final firstMark = !_checkedIn.contains(latest.major);
+      if (firstMark && !_inForeground) {
+        // The check-in needs a fingerprint, which needs the app on screen.
+        setState(() => _status = 'Class found — confirm with your fingerprint');
+        await Background.update('Class found — tap to check in', 'Open ProxyProof and confirm with your fingerprint.');
+        return;
+      }
       final body = {'payload': payload, 'sig': await DeviceKeys.signDevice(payload)};
-      if (!_checkedIn.contains(latest.major)) {
+      if (firstMark) {
         setState(() => _status = 'Class found — confirm with your fingerprint');
         body['bioSig'] = await DeviceKeys.signBiometric(payload, 'Mark your attendance');
       }
@@ -129,8 +167,9 @@ class _StudentHomeState extends State<StudentHome> {
         _course = res['course'] as String?;
         if (!_spotBusy) _status = 'You are marked present ✓';
       });
+      if (firstMark) _notifyNormal();
       final spot = res['spotCheck'];
-      if (spot != null) _answerSpotCheck(spot['id'] as int, spot['secondsLeft'] as int);
+      if (spot != null) _onSpotCheck(spot['id'] as int, spot['secondsLeft'] as int);
     } on PlatformException catch (e) {
       if (e.code == 'KEY_INVALIDATED') return _deviceChanged();
       setState(
@@ -152,11 +191,35 @@ class _StudentHomeState extends State<StudentHome> {
   /// Signed payloads need strictly increasing timestamps (the server's replay guard).
   int _nextTs() => _lastTs = DateTime.now().millisecondsSinceEpoch.clamp(_lastTs + 1, 1 << 53);
 
+  Future<void> _notifyNormal() => Background.update(
+    'ProxyProof is taking attendance',
+    _course == null ? 'You can lock your phone.' : 'Marked present · $_course. You can lock your phone.',
+  );
+
+  /// A spot check arrived. On screen: prompt now. In the background: buzz + wake the screen
+  /// + change the notification, and prompt as soon as the student opens the app.
+  void _onSpotCheck(int id, int secondsLeft) {
+    if (_spotAnswered.contains(id)) return;
+    if (_inForeground) {
+      _answerSpotCheck(id, secondsLeft);
+      return;
+    }
+    if (_pendingSpot?.id == id) return; // already notified (the reply repeats it until answered)
+    _pendingSpot = (id: id, deadline: DateTime.now().add(Duration(seconds: secondsLeft)));
+    setState(() => _status = 'Spot check! Open the app within $secondsLeft s');
+    Background.update(
+      'Spot check! Tap within $secondsLeft s',
+      'Confirm with your fingerprint that you are still in class.',
+    );
+    FlutterForegroundTask.wakeUpScreen();
+  }
+
   /// Random spot check from the server: the owner must touch the fingerprint sensor within
   /// 20 s. The answer is signed by the fingerprint key, so only the enrolled finger works.
   Future<void> _answerSpotCheck(int id, int secondsLeft) async {
     if (_spotBusy || _spotAnswered.contains(id)) return;
     _spotBusy = true;
+    _pendingSpot = null;
     HapticFeedback.heavyImpact();
     setState(() => _status = 'Spot check! Confirm within $secondsLeft s');
     try {
@@ -179,6 +242,7 @@ class _StudentHomeState extends State<StudentHome> {
       setState(() => _status = 'Network problem: $e');
     } finally {
       _spotBusy = false;
+      _notifyNormal();
     }
   }
 
@@ -204,9 +268,11 @@ class _StudentHomeState extends State<StudentHome> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _reportTimer?.cancel();
     _sub?.cancel();
     FlutterBluePlus.stopScan();
+    Background.stop();
     super.dispose();
   }
 
