@@ -33,13 +33,23 @@ Admins add teacher accounts and approve phone changes from their dashboard page.
 
 ## Student experience
 
-Log in once (the phone is bound to the account), tap **Start attendance** when you sit down, touch the
+Tap **Continue with Google** with your **@vitstudent.ac.in** account — nothing else is accepted (the phone is then bound to that account), tap **Start attendance** when you sit down, touch the
 fingerprint sensor once, **then lock the phone and put it away** — a foreground service (the small
 "ProxyProof is taking attendance" notification) keeps scanning and reporting in the background.
 A random spot check may buzz the phone once more; tap the notification and touch the sensor within 20 s.
 The **My attendance** screen shows the percentage per course and a **"Can I bunk?"** calculator for the 75% rule.
 
 ---
+
+## Sign-in: VIT Google accounts only
+
+- The app gets a Google **ID token** and the server verifies it itself: Google's signature (published JWKS keys),
+  `aud` = our OAuth client, issuer, expiry, `email_verified` and **`hd = vitstudent.ac.in`**. Google sets `hd` only for
+  accounts that belong to that Workspace, so a look-alike personal Gmail can't pass.
+- Password sign-up is switched off in production. Teachers/admins use accounts the admin creates;
+  the seeded demo accounts keep passwords so evaluators can try every role.
+- Teachers can add students' emails before they ever sign in — those become **invites** and turn into
+  enrolments automatically on the student's first Google sign-in.
 
 ## How it works
 
@@ -132,6 +142,7 @@ Cases pending review are **not** counted as attended — the safe choice for som
 
 | # | Attack | Defence | Residual risk |
 |---|---|---|---|
+| 0 | Fake student account (made-up email) | Accounts are created only from Google ID tokens with a verified `@vitstudent.ac.in` hosted domain | A real VIT student lending their Google login — still blocked by device binding + fingerprint (rows 1–3) |
 | 1 | Friend marks me from his phone with my password | Requests must be signed by **my approved phone's** Keystore key; a new phone needs admin approval | Admin approves a malicious request without checking |
 | 2 | I hand my phone to a friend in class | First mark + spot checks need **my fingerprint** (hardware-enforced); one phone = one student per session | Friend gets my fingerprint on purpose (collusion with my finger present = I'm present) |
 | 3 | Friend adds his fingerprint to my phone | Keystore **invalidates the fingerprint key** on new enrolment → new keys → treated as a new phone → admin approval | — |
@@ -156,7 +167,11 @@ Cases pending review are **not** counted as attended — the safe choice for som
   "invalidated when new biometrics are enrolled". The server side is unchanged (P-256 ECDSA, SPKI public keys).
 - Background scanning: iOS region monitoring wakes the app on entering a beacon region, so students
   wouldn't even need to open it.
-- Not built/tested here (no Mac/iPhone available); the Flutter UI and server are platform-neutral.
+- **Current status:** the Android app is the shipped product. An iPhone build needs (a) a Swift version of
+  `DeviceKeys.kt` using the Secure Enclave, (b) iOS location/Bluetooth permission strings and background modes,
+  (c) a Mac/Xcode (or a macOS CI runner) to build, and (d) an Apple Developer account ($99/yr) to install via
+  TestFlight. A web page can't replace it: Safari on iPhone has no Bluetooth access. The server, dashboard and
+  all Flutter screens are already platform-neutral, so (a)–(d) are the whole port.
 
 ---
 

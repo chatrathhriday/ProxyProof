@@ -104,7 +104,10 @@ class _OwlPainter extends CustomPainter {
       canvas.save();
       canvas.translate(100 + side * 52, 112);
       canvas.rotate(side * (0.25 + flap));
-      canvas.drawOval(Rect.fromCenter(center: Offset(side * 8, 18), width: 30, height: 64), Paint()..color = Brand.navy2);
+      canvas.drawOval(
+        Rect.fromCenter(center: Offset(side * 8, 18), width: 30, height: 64),
+        Paint()..color = Brand.navy2,
+      );
       canvas.restore();
     }
     // body
@@ -136,7 +139,10 @@ class _OwlPainter extends CustomPainter {
     final feet = Paint()..color = Brand.gold;
     for (final x in [86.0, 114.0]) {
       canvas.drawRRect(
-        RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(x, 180), width: 18, height: 8), const Radius.circular(4)),
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(center: Offset(x, 180), width: 18, height: 8),
+          const Radius.circular(4),
+        ),
         feet,
       );
     }
@@ -167,9 +173,21 @@ class _OwlPainter extends CustomPainter {
       switch (mood) {
         case OwlMood.happy:
           // ^ ^ smiling eyes
-          canvas.drawArc(Rect.fromCircle(center: c.translate(0, 4), radius: 9), math.pi * 1.1, math.pi * 0.8, false, closedLine);
+          canvas.drawArc(
+            Rect.fromCircle(center: c.translate(0, 4), radius: 9),
+            math.pi * 1.1,
+            math.pi * 0.8,
+            false,
+            closedLine,
+          );
         case OwlMood.sleeping:
-          canvas.drawArc(Rect.fromCircle(center: c.translate(0, -3), radius: 9), math.pi * 0.15, math.pi * 0.7, false, closedLine);
+          canvas.drawArc(
+            Rect.fromCircle(center: c.translate(0, -3), radius: 9),
+            math.pi * 0.15,
+            math.pi * 0.7,
+            false,
+            closedLine,
+          );
         default:
           if (blink && mood != OwlMood.alert) {
             canvas.drawLine(c.translate(-10, 0), c.translate(10, 0), closedLine);
@@ -182,7 +200,11 @@ class _OwlPainter extends CustomPainter {
       if (mood == OwlMood.worried) {
         // slanted brows
         final dir = cx < 100 ? 1 : -1;
-        canvas.drawLine(c.translate(-12.0 * dir, -24), c.translate(10.0 * dir, -30), closedLine..color = Brand.goldSoft);
+        canvas.drawLine(
+          c.translate(-12.0 * dir, -24),
+          c.translate(10.0 * dir, -30),
+          closedLine..color = Brand.goldSoft,
+        );
       }
     }
     // beak
@@ -209,7 +231,10 @@ class _OwlPainter extends CustomPainter {
       navy,
     );
     canvas.drawRRect(
-      RRect.fromRectAndRadius(Rect.fromCenter(center: const Offset(100, 52), width: 52, height: 14), const Radius.circular(4)),
+      RRect.fromRectAndRadius(
+        Rect.fromCenter(center: const Offset(100, 52), width: 52, height: 14),
+        const Radius.circular(4),
+      ),
       navy,
     );
     // tassel swings with the loop (faster when alert)

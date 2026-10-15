@@ -50,7 +50,8 @@ class _RadarState extends State<Radar> with SingleTickerProviderStateMixin {
             RepaintBoundary(
               child: AnimatedBuilder(
                 animation: _c,
-                builder: (_, _) => CustomPaint(size: Size.square(widget.size), painter: _RadarPainter(_c.value, widget.color)),
+                builder: (_, _) =>
+                    CustomPaint(size: Size.square(widget.size), painter: _RadarPainter(_c.value, widget.color)),
               ),
             ),
           widget.child,
@@ -87,7 +88,14 @@ class _RadarPainter extends CustomPainter {
 
 /// Circular attendance gauge that animates from 0 to [value] the first time it appears.
 class AttendanceRing extends StatelessWidget {
-  const AttendanceRing({super.key, required this.value, this.size = 72, this.stroke = 7, this.label, this.dark = false});
+  const AttendanceRing({
+    super.key,
+    required this.value,
+    this.size = 72,
+    this.stroke = 7,
+    this.label,
+    this.dark = false,
+  });
   final double? value; // 0..1, null = no classes yet
   final double size;
   final double stroke;
@@ -126,7 +134,10 @@ class AttendanceRing extends StatelessWidget {
                   ),
                 ),
                 if (label != null)
-                  Text(label!, style: TextStyle(fontSize: size * 0.11, color: dark ? Colors.white70 : Colors.grey)),
+                  Text(
+                    label!,
+                    style: TextStyle(fontSize: size * 0.11, color: dark ? Colors.white70 : Colors.grey),
+                  ),
               ],
             ),
           ),
@@ -173,9 +184,7 @@ class HeroPanel extends StatelessWidget {
       decoration: BoxDecoration(
         gradient: Brand.heroGradient,
         borderRadius: BorderRadius.circular(28),
-        boxShadow: [
-          BoxShadow(color: Brand.navy.withValues(alpha: 0.35), blurRadius: 30, offset: const Offset(0, 14)),
-        ],
+        boxShadow: [BoxShadow(color: Brand.navy.withValues(alpha: 0.35), blurRadius: 30, offset: const Offset(0, 14))],
       ),
       clipBehavior: Clip.antiAlias,
       child: Stack(
@@ -195,8 +204,11 @@ class _Bubble extends StatelessWidget {
   final Color color;
 
   @override
-  Widget build(BuildContext context) =>
-      Container(width: size, height: size, decoration: BoxDecoration(shape: BoxShape.circle, color: color));
+  Widget build(BuildContext context) => Container(
+    width: size,
+    height: size,
+    decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+  );
 }
 
 /// Small rounded status chip.
@@ -209,7 +221,11 @@ class Pill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget dot = Container(width: 7, height: 7, decoration: BoxDecoration(color: color, shape: BoxShape.circle));
+    Widget dot = Container(
+      width: 7,
+      height: 7,
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+    );
     if (pulse) {
       dot = dot.animate(onPlay: (c) => c.repeat(reverse: true)).fade(begin: 1, end: 0.25, duration: 800.ms);
     }
@@ -225,7 +241,10 @@ class Pill extends StatelessWidget {
         children: [
           if (icon != null) Icon(icon, size: 14, color: color) else dot,
           const SizedBox(width: 6),
-          Text(text, style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 12)),
+          Text(
+            text,
+            style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 12),
+          ),
         ],
       ),
     );
@@ -245,12 +264,10 @@ class Skeleton extends StatelessWidget {
       children: [
         for (var i = 0; i < count; i++)
           Container(
-                height: height,
-                margin: const EdgeInsets.only(bottom: 12),
-                decoration: BoxDecoration(color: base, borderRadius: BorderRadius.circular(22)),
-              )
-              .animate(onPlay: (c) => c.repeat())
-              .shimmer(duration: 1200.ms, color: Colors.white.withValues(alpha: 0.5)),
+            height: height,
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(color: base, borderRadius: BorderRadius.circular(22)),
+          ).animate(onPlay: (c) => c.repeat()).shimmer(duration: 1200.ms, color: Colors.white.withValues(alpha: 0.5)),
       ],
     );
   }
@@ -278,9 +295,7 @@ class SectionTitle extends StatelessWidget {
     padding: const EdgeInsets.fromLTRB(4, 22, 4, 10),
     child: Row(
       children: [
-        Expanded(
-          child: Text(text, style: Brand.display(context, size: 20)),
-        ),
+        Expanded(child: Text(text, style: Brand.display(context, size: 20))),
         ?trailing,
       ],
     ),

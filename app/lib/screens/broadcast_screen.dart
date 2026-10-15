@@ -1,11 +1,15 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_ble_peripheral/flutter_ble_peripheral.dart';
 
 import '../api.dart';
 import '../ibeacon.dart';
 import '../permissions.dart';
+import '../theme.dart';
+import '../widgets/owl.dart';
+import '../widgets/ui.dart';
 import 'summary_screen.dart';
 
 /// Organiser's phone acts as the beacon. Every 10 s window it fetches the new token from
@@ -153,36 +157,78 @@ class _BroadcastScreenState extends State<BroadcastScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final t = Theme.of(context).textTheme;
+    final on = _minor != null;
     return Scaffold(
-      appBar: AppBar(title: Text(widget.title)),
+      backgroundColor: Brand.navy,
+      appBar: AppBar(
+        foregroundColor: Colors.white,
+        title: Text(widget.title, style: Brand.display(context, size: 22, color: Colors.white)),
+        actions: [
+          if (on)
+            const Padding(
+              padding: EdgeInsets.only(right: 16),
+              child: Pill('ON AIR', color: Brand.gold, pulse: true),
+            ),
+        ],
+      ),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.fromLTRB(22, 0, 22, 18),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Spacer(),
-              Icon(
-                Icons.sensors,
-                size: 96,
-                color: _minor == null ? Colors.grey : Theme.of(context).colorScheme.primary,
+              Center(
+                child: Radar(
+                  active: on,
+                  size: 280,
+                  child: Owl(mood: on ? (_spotOpen ? OwlMood.alert : OwlMood.scanning) : OwlMood.sleeping, size: 160),
+                ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 8),
               Text(
-                _minor == null ? 'Starting beacon…' : 'Broadcasting',
+                on ? 'Broadcasting' : 'Starting beacon…',
                 textAlign: TextAlign.center,
-                style: t.headlineSmall,
+                style: Brand.display(context, size: 24, color: Colors.white),
               ),
-              const SizedBox(height: 32),
-              Text('$_present / $_total', textAlign: TextAlign.center, style: t.displayMedium),
-              Text('students present', textAlign: TextAlign.center, style: t.bodyLarge),
-              const SizedBox(height: 24),
+              const SizedBox(height: 22),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  TweenAnimationBuilder<double>(
+                    tween: Tween(end: _present.toDouble()),
+                    duration: const Duration(milliseconds: 500),
+                    builder: (_, v, _) =>
+                        Text('${v.round()}', style: Brand.display(context, size: 64, color: Brand.goldSoft)),
+                  ),
+                  Text(' / $_total', style: Brand.display(context, size: 28, color: Colors.white54)),
+                ],
+              ),
+              const Text(
+                'students marked',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white70),
+              ),
+              const SizedBox(height: 14),
               if (_major != null)
-                Text(
-                  'Code $_major · token $_minor (rotates every 10 s)',
-                  textAlign: TextAlign.center,
-                  style: t.bodySmall,
+                Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.07),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 300),
+                      child: Text(
+                        'code $_major · token $_minor · rotates every 10 s',
+                        key: ValueKey(_minor),
+                        style: const TextStyle(color: Colors.white60, fontFeatures: [FontFeature.tabularFigures()]),
+                      ),
+                    ),
+                  ),
                 ),
               if (_error != null)
                 Padding(
@@ -190,24 +236,33 @@ class _BroadcastScreenState extends State<BroadcastScreen> {
                   child: Text(
                     _error!,
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: Theme.of(context).colorScheme.error),
+                    style: const TextStyle(color: Color(0xFFFF8A7A)),
                   ),
                 ),
               const Spacer(),
-              const Text('Keep this screen open during class.', textAlign: TextAlign.center),
+              const Text(
+                'Keep this screen open during class.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white54),
+              ),
               const SizedBox(height: 12),
               OutlinedButton.icon(
-                onPressed: _minor == null || _spotOpen ? null : _spotCheck,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Brand.goldSoft,
+                  side: BorderSide(color: Brand.gold.withValues(alpha: 0.6)),
+                ),
+                onPressed: !on || _spotOpen ? null : _spotCheck,
                 icon: const Icon(Icons.fingerprint),
                 label: Text(_spotOpen ? 'Spot check running…' : 'Spot check now'),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               FilledButton.icon(
+                style: FilledButton.styleFrom(backgroundColor: Brand.gold, foregroundColor: Brand.navy),
                 onPressed: _closing ? null : _close,
-                icon: const Icon(Icons.stop_circle_outlined),
+                icon: const Icon(Icons.flag_rounded),
                 label: const Text('Close session & review'),
               ),
-            ],
+            ].animate(interval: 40.ms).fadeIn(duration: 300.ms),
           ),
         ),
       ),

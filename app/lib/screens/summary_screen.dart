@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 
 import '../api.dart';
+import '../theme.dart';
+import '../widgets/owl.dart';
+import '../widgets/ui.dart';
 
 /// End of class on the teacher's phone: "X present · Y need review · Z absent".
 /// Clear cases were decided by the server; the teacher only looks at the flagged ones,
@@ -59,79 +63,158 @@ class _SummaryScreenState extends State<SummaryScreen> {
     if (s == null) {
       return Scaffold(
         appBar: AppBar(title: Text(widget.title)),
-        body: Center(child: _error != null ? Text(_error!) : const CircularProgressIndicator()),
+        body: Padding(
+          padding: const EdgeInsets.all(18),
+          child: _error != null ? Text(_error!) : const Skeleton(height: 100, count: 4),
+        ),
       );
     }
     final counts = s['counts'] as Map;
     final rows = (s['attendance'] as List).cast<Map>();
     final review = rows.where((a) => a['verdict'] == 'review').toList();
     final finalized = s['finalized_at'] != null;
+    final allClear = review.isEmpty;
 
     return Scaffold(
       appBar: AppBar(title: Text('${widget.title} · summary')),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(18, 4, 18, 28),
         children: [
-          Row(
-            children: [
-              _Stat('${counts['present']}', 'present', Colors.green.shade700),
-              _Stat('${counts['review']}', 'need review', Colors.orange.shade800),
-              _Stat('${counts['absent']}', 'absent', Theme.of(context).colorScheme.error),
-            ],
-          ),
-          const SizedBox(height: 16),
-          if (_error != null) Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-          if (review.isEmpty)
+          HeroPanel(
+            child: Column(
+              children: [
+                Owl(mood: allClear ? OwlMood.happy : OwlMood.idle, size: 110),
+                const SizedBox(height: 6),
+                Text(
+                  allClear
+                      ? (finalized ? 'All done — finalised' : 'Every case was clear')
+                      : '${review.length} to check',
+                  style: Brand.display(context, size: 24, color: Colors.white),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    _Stat(counts['present'] as int, 'present', const Color(0xFF7BE0A8)),
+                    _Stat(counts['review'] as int, 'need review', Brand.goldSoft),
+                    _Stat(counts['absent'] as int, 'absent', const Color(0xFFFF9C8F)),
+                  ],
+                ),
+              ],
+            ),
+          ).animate().fadeIn().slideY(begin: 0.06),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(_error!, style: const TextStyle(color: Brand.absent)),
+            ),
+          if (!allClear) ...[
+            const SectionTitle('Check these'),
             Text(
-              finalized ? 'Finalised ✓' : 'Every case was clear — nothing to review.',
-              textAlign: TextAlign.center,
-              style: t.titleMedium,
-            )
-          else ...[
-            Text('Check these', style: t.titleMedium),
-            for (final a in review)
-              Card(
-                child: ListTile(
-                  title: Text('${a['name']}'),
-                  subtitle: Text('${a['reason']}'),
-                  trailing: Wrap(
-                    spacing: 4,
-                    children: [
-                      TextButton(onPressed: _busy ? null : () => _mark(a, 'absent'), child: const Text('Absent')),
-                      FilledButton.tonal(
-                        onPressed: _busy ? null : () => _mark(a, 'present'),
-                        child: const Text('Present'),
+              'Clear cases were decided automatically. Fix any you disagree with, then approve the rest.',
+              style: t.bodySmall,
+            ),
+            const SizedBox(height: 10),
+            ...[
+              for (final a in review)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              CircleAvatar(
+                                backgroundColor: Brand.review.withValues(alpha: 0.15),
+                                child: Text(
+                                  '${a['name']}'.characters.first.toUpperCase(),
+                                  style: const TextStyle(color: Brand.review, fontWeight: FontWeight.w800),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('${a['name']}', style: t.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+                                    Text('${a['reason']}', style: t.bodySmall),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton(
+                                  style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(42)),
+                                  onPressed: _busy ? null : () => _mark(a, 'absent'),
+                                  child: const Text('Absent'),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: FilledButton(
+                                  style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(42)),
+                                  onPressed: _busy ? null : () => _mark(a, 'present'),
+                                  child: const Text('Present'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
-              ),
-            const SizedBox(height: 12),
+            ].staggered(),
+            const SizedBox(height: 6),
             FilledButton.icon(
+              style: FilledButton.styleFrom(backgroundColor: Brand.gold, foregroundColor: Brand.navy),
               onPressed: _busy
                   ? null
                   : () => _do(() async => Api.instance.post('/sessions/${widget.sessionId}/approve-all')),
-              icon: const Icon(Icons.done_all),
+              icon: const Icon(Icons.done_all_rounded),
               label: Text('Approve all (${review.length})'),
             ),
           ],
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           TextButton(
             onPressed: () => setState(() => _showAll = !_showAll),
             child: Text(_showAll ? 'Hide full list' : 'Show all ${rows.length} students'),
           ),
-          if (_showAll)
-            for (final a in rows)
-              ListTile(
-                dense: true,
-                title: Text('${a['name']}'),
-                subtitle: Text('${a['reason']}'),
-                trailing: Text(switch (a['verdict']) {
-                  'present' => 'Present',
-                  'review' => 'Review',
-                  _ => 'Absent',
-                }),
-              ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOutCubic,
+            child: !_showAll
+                ? const SizedBox(width: double.infinity)
+                : Column(
+                    children: [
+                      for (final a in rows)
+                        ListTile(
+                          dense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                          title: Text('${a['name']}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                          subtitle: Text('${a['reason']}'),
+                          trailing: Pill(
+                            switch (a['verdict']) {
+                              'present' => 'Present',
+                              'review' => 'Review',
+                              _ => 'Absent',
+                            },
+                            color: switch (a['verdict']) {
+                              'present' => Brand.present,
+                              'review' => Brand.review,
+                              _ => Brand.absent,
+                            },
+                          ),
+                        ),
+                    ],
+                  ),
+          ),
         ],
       ),
     );
@@ -140,21 +223,22 @@ class _SummaryScreenState extends State<SummaryScreen> {
 
 class _Stat extends StatelessWidget {
   const _Stat(this.value, this.label, this.color);
-  final String value, label;
+  final int value;
+  final String label;
   final Color color;
 
   @override
   Widget build(BuildContext context) => Expanded(
-    child: Card(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        child: Column(
-          children: [
-            Text(value, style: Theme.of(context).textTheme.headlineMedium?.copyWith(color: color)),
-            Text(label, textAlign: TextAlign.center),
-          ],
+    child: Column(
+      children: [
+        TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0, end: value.toDouble()),
+          duration: const Duration(milliseconds: 800),
+          curve: Curves.easeOutCubic,
+          builder: (_, v, _) => Text('${v.round()}', style: Brand.display(context, size: 34, color: color)),
         ),
-      ),
+        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12.5)),
+      ],
     ),
   );
 }

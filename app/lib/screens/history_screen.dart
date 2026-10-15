@@ -72,7 +72,10 @@ class _ClassesTabState extends State<ClassesTab> {
               if (_error != null && courses == null) Text(_error!),
               if (courses != null) ...[
                 _Overall(courses),
-                SectionTitle('Courses', trailing: Text('${courses.length}', style: const TextStyle(color: Brand.gold))),
+                SectionTitle(
+                  'Courses',
+                  trailing: Text('${courses.length}', style: const TextStyle(color: Brand.gold)),
+                ),
                 if (courses.isEmpty)
                   const Card(
                     child: Padding(
@@ -156,7 +159,10 @@ class _CourseCard extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                Hero(tag: 'ring-${c['courseId']}', child: AttendanceRing(value: pct, size: 70)),
+                Hero(
+                  tag: 'ring-${c['courseId']}',
+                  child: AttendanceRing(value: pct, size: 70),
+                ),
                 const SizedBox(width: 16),
                 Expanded(
                   child: Column(
@@ -228,7 +234,10 @@ class _CourseDetailState extends State<_CourseDetail> {
           HeroPanel(
             child: Row(
               children: [
-                Hero(tag: 'ring-${c['courseId']}', child: AttendanceRing(value: pct, size: 96, stroke: 9, dark: true)),
+                Hero(
+                  tag: 'ring-${c['courseId']}',
+                  child: AttendanceRing(value: pct, size: 96, stroke: 9, dark: true),
+                ),
                 const SizedBox(width: 18),
                 Expanded(
                   child: Column(
@@ -284,10 +293,7 @@ class _CourseDetailState extends State<_CourseDetail> {
                       ),
                     ),
                     const SizedBox(height: 6),
-                    Text(
-                      'Reviews pending with your teacher aren\'t counted until they decide.',
-                      style: t.bodySmall,
-                    ),
+                    Text('Reviews pending with your teacher aren\'t counted until they decide.', style: t.bodySmall),
                   ],
                 ),
               ),
@@ -313,14 +319,11 @@ class _CourseDetailState extends State<_CourseDetail> {
                       },
                     ),
                     title: Text(_date(s['date'] as String)),
-                    trailing: Text(
-                      switch (s['status']) {
-                        'present' => 'Present',
-                        'review' => 'Under review',
-                        _ => 'Absent',
-                      },
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
+                    trailing: Text(switch (s['status']) {
+                      'present' => 'Present',
+                      'review' => 'Under review',
+                      _ => 'Absent',
+                    }, style: const TextStyle(fontWeight: FontWeight.w600)),
                   ),
                 ),
               ),

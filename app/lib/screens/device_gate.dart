@@ -91,7 +91,12 @@ class _DeviceGateState extends State<DeviceGate> {
               const SizedBox(height: 24),
               AnimatedSwitcher(
                 duration: const Duration(milliseconds: 300),
-                child: Text(_title, key: ValueKey(_title), style: Brand.display(context, size: 26), textAlign: TextAlign.center),
+                child: Text(
+                  _title,
+                  key: ValueKey(_title),
+                  style: Brand.display(context, size: 26),
+                  textAlign: TextAlign.center,
+                ),
               ),
               const SizedBox(height: 10),
               Text(

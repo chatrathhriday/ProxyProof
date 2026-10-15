@@ -307,7 +307,6 @@ class _StudentHomeState extends State<StudentHome> with WidgetsBindingObserver {
     super.dispose();
   }
 
-
   OwlMood get _mood {
     if (_spotBusy || _pendingSpot != null) return OwlMood.alert;
     if (_problem) return OwlMood.worried;
@@ -380,10 +379,7 @@ class _StudentHomeState extends State<StudentHome> with WidgetsBindingObserver {
                         valueListenable: _rssi,
                         builder: (_, v, _) => v == null
                             ? const SizedBox(height: 22)
-                            : Padding(
-                                padding: const EdgeInsets.only(top: 10),
-                                child: _SignalBars(v),
-                              ),
+                            : Padding(padding: const EdgeInsets.only(top: 10), child: _SignalBars(v)),
                       ),
                     const SizedBox(height: 18),
                     SizedBox(
@@ -473,7 +469,10 @@ class _SignalBars extends StatelessWidget {
             ),
           ),
         const SizedBox(width: 8),
-        Text('$rssi dBm', style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 13)),
+        Text(
+          '$rssi dBm',
+          style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 13),
+        ),
       ],
     );
   }

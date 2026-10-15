@@ -54,10 +54,8 @@ ThemeData buildTheme(Brightness brightness) {
     surfaceContainerLow: dark ? const Color(0xFF15204A) : const Color(0xFFFFFDF8),
     error: Brand.absent,
   );
-  final text = GoogleFonts.interTextTheme(ThemeData(brightness: brightness).textTheme).apply(
-    bodyColor: scheme.onSurface,
-    displayColor: scheme.onSurface,
-  );
+  final text = GoogleFonts.interTextTheme(ThemeData(brightness: brightness).textTheme)
+      .apply(bodyColor: scheme.onSurface, displayColor: scheme.onSurface);
 
   return ThemeData(
     useMaterial3: true,
@@ -66,9 +64,7 @@ ThemeData buildTheme(Brightness brightness) {
     textTheme: text,
     // Smooth, modern transitions everywhere (fade + slight slide, supports predictive back).
     pageTransitionsTheme: const PageTransitionsTheme(
-      builders: {
-        TargetPlatform.android: FadeForwardsPageTransitionsBuilder(),
-      },
+      builders: {TargetPlatform.android: FadeForwardsPageTransitionsBuilder()},
     ),
     appBarTheme: AppBarTheme(
       backgroundColor: Colors.transparent,

@@ -47,7 +47,9 @@ class _LoginScreenState extends State<LoginScreen> {
     } on GoogleSignInException catch (e) {
       setState(() {
         _mood = OwlMood.idle;
-        if (e.code != GoogleSignInExceptionCode.canceled) _error = 'Google sign-in failed: ${e.description ?? e.code.name}';
+        if (e.code != GoogleSignInExceptionCode.canceled) {
+          _error = 'Google sign-in failed: ${e.description ?? e.code.name}';
+        }
       });
     } catch (e) {
       setState(() {
@@ -80,7 +82,10 @@ class _LoginScreenState extends State<LoginScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Server'),
-        content: TextField(controller: c, decoration: const InputDecoration(labelText: 'API URL')),
+        content: TextField(
+          controller: c,
+          decoration: const InputDecoration(labelText: 'API URL'),
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           TextButton(onPressed: () => Navigator.pop(ctx, c.text), child: const Text('Save')),
@@ -118,16 +123,23 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: Column(
                     children: [
                       const SizedBox(height: 28),
-                      Owl(mood: _mood, size: 150).animate().fadeIn(duration: 500.ms).scale(begin: const Offset(0.85, 0.85)),
+                      Owl(
+                        mood: _mood,
+                        size: 150,
+                      ).animate().fadeIn(duration: 500.ms).scale(begin: const Offset(0.85, 0.85)),
                       const SizedBox(height: 10),
-                      Text('ProxyProof', style: Brand.display(context, size: 38, color: Colors.white))
-                          .animate()
-                          .fadeIn(delay: 150.ms)
-                          .slideY(begin: 0.3),
+                      Text(
+                        'ProxyProof',
+                        style: Brand.display(context, size: 38, color: Colors.white),
+                      ).animate().fadeIn(delay: 150.ms).slideY(begin: 0.3),
                       const SizedBox(height: 6),
                       Text(
                         'Attendance that can\'t be faked.',
-                        style: TextStyle(color: Brand.goldSoft.withValues(alpha: 0.9), fontSize: 15, letterSpacing: 0.3),
+                        style: TextStyle(
+                          color: Brand.goldSoft.withValues(alpha: 0.9),
+                          fontSize: 15,
+                          letterSpacing: 0.3,
+                        ),
                       ).animate().fadeIn(delay: 300.ms),
                       const SizedBox(height: 32),
                       Container(
@@ -202,7 +214,10 @@ class _LoginScreenState extends State<LoginScreen> {
                                           child: _busy && _staff
                                               ? const SizedBox.square(
                                                   dimension: 22,
-                                                  child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
+                                                  child: CircularProgressIndicator(
+                                                    strokeWidth: 2.4,
+                                                    color: Colors.white,
+                                                  ),
                                                 )
                                               : const Text('Sign in'),
                                         ),
@@ -287,7 +302,12 @@ class _GPainter extends CustomPainter {
     final p = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = s.width * 0.18;
-    const seg = [(Color(0xFF4285F4), -0.25, 0.55), (Color(0xFF34A853), 0.3, 0.6), (Color(0xFFFBBC05), 0.9, 0.35), (Color(0xFFEA4335), 1.25, 0.6)];
+    const seg = [
+      (Color(0xFF4285F4), -0.25, 0.55),
+      (Color(0xFF34A853), 0.3, 0.6),
+      (Color(0xFFFBBC05), 0.9, 0.35),
+      (Color(0xFFEA4335), 1.25, 0.6),
+    ];
     for (final (c, start, sweep) in seg) {
       canvas.drawArc(r, start * 3.14159, sweep * 3.14159, false, p..color = c);
     }

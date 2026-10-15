@@ -24,9 +24,10 @@ export default function CourseView({ id, onBack }) {
       const r = await api('POST', `/courses/${id}/enroll`, { emails: list })
       setMsg(
         `Added ${r.enrolled.length}.` +
-          (r.notFound.length ? ` Not registered yet (ask them to sign up in the app first): ${r.notFound.join(', ')}` : ''),
+          (r.invited?.length ? ` Invited ${r.invited.length} — they join automatically on their first Google sign-in.` : '') +
+          (r.notFound?.length ? ` Not valid emails: ${r.notFound.join(', ')}` : ''),
       )
-      setEmails(r.notFound.join('\n'))
+      setEmails((r.notFound || []).join('\n'))
       await load()
     } catch (err) {
       setError(err.message)
@@ -46,7 +47,16 @@ export default function CourseView({ id, onBack }) {
   }
 
   if (!data) return <p className="muted">{error || 'Loading…'}</p>
-  const { course, held, students } = data
+  const { course, held, students, invites = [] } = data
+
+  async function uninvite(email) {
+    try {
+      await api('POST', `/courses/${id}/unenroll`, { email })
+      await load()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
 
   return (
     <>
@@ -64,7 +74,7 @@ export default function CourseView({ id, onBack }) {
           Add students by email
           <textarea
             rows="3"
-            placeholder={'student1@college.edu\nstudent2@college.edu'}
+            placeholder={'firstname.lastname2024@vitstudent.ac.in\n…one per line, or paste a whole list'}
             value={emails}
             onChange={(e) => setEmails(e.target.value)}
           />
@@ -98,6 +108,25 @@ export default function CourseView({ id, onBack }) {
           )
         })}
       </div>
+
+      {invites.length > 0 && (
+        <>
+          <h2>Invited ({invites.length})</h2>
+          <div className="card list">
+            {invites.map((email) => (
+              <div key={email} className="row">
+                <div>
+                  <strong>{email}</strong>
+                  <div className="muted small">Joins automatically on first Google sign-in</div>
+                </div>
+                <button className="btn small ghost" onClick={() => uninvite(email)}>
+                  Cancel invite
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </>
   )
 }
