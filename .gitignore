@@ -6,3 +6,4 @@ build/
 .dart_tool/
 tools/.laptop_keys/
 release/
+signing/

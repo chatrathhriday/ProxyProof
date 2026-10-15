@@ -29,11 +29,24 @@ android {
         versionName = flutter.versionName
     }
 
+    // Fixed release key (GitHub secrets -> env vars in CI). Same key every build means
+    // updates install over each other and Google Sign-In's SHA-1 stays valid.
+    // Without the env vars (local dev) release builds fall back to the debug key.
+    val releaseKeystore = System.getenv("PROXYPROOF_KEYSTORE")
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storePassword = System.getenv("PROXYPROOF_KEYSTORE_PASSWORD")
+                keyAlias = "proxyproof"
+                keyPassword = System.getenv("PROXYPROOF_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
 }
