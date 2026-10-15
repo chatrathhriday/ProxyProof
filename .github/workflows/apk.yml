@@ -51,10 +51,7 @@ jobs:
       - name: Build release APK (points at the deployed server)
         env:
           PROXYPROOF_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-        run: >
-          flutter build apk --release
-          --dart-define=API_URL=https://proxyproof.onrender.com
-          --dart-define=GOOGLE_SERVER_CLIENT_ID=${{ vars.GOOGLE_SERVER_CLIENT_ID }}
+        run: flutter build apk --release --dart-define=API_URL=https://proxyproof.onrender.com
 
       - name: Name the APK
         run: cp build/app/outputs/flutter-apk/app-release.apk ProxyProof.apk

@@ -1,13 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
 import 'api.dart';
 import 'screens/admin_home.dart';
 import 'screens/device_gate.dart';
 import 'screens/login_screen.dart';
 import 'screens/organiser_home.dart';
+import 'theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Draw edge-to-edge under transparent system bars: modern look, no colour seams.
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(statusBarColor: Colors.transparent, systemNavigationBarColor: Colors.transparent),
+  );
   await Api.instance.load();
   runApp(const ProxyProofApp());
 }
@@ -20,7 +28,9 @@ class ProxyProofApp extends StatelessWidget {
     return MaterialApp(
       title: 'ProxyProof',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(colorSchemeSeed: const Color(0xFF3355FF), useMaterial3: true),
+      theme: buildTheme(Brightness.light),
+      darkTheme: buildTheme(Brightness.dark),
+      themeMode: ThemeMode.system,
       home: const HomeRouter(),
     );
   }
@@ -42,9 +52,12 @@ class HomeRouter extends StatelessWidget {
   }
 }
 
-/// Logs out and returns to the login screen. Used by every home screen's app bar.
+/// Logs out and returns to the login screen. Used by every home screen.
 Future<void> logout(BuildContext context) async {
   await Api.instance.logout();
+  try {
+    await GoogleSignIn.instance.signOut();
+  } catch (_) {} // not initialised (staff/demo login)
   if (!context.mounted) return;
   Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const LoginScreen()), (_) => false);
 }

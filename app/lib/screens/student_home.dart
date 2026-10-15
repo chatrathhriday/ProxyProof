@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
@@ -12,15 +13,18 @@ import '../device_keys.dart';
 import '../ibeacon.dart';
 import '../main.dart';
 import '../permissions.dart';
+import '../theme.dart';
+import '../widgets/owl.dart';
+import '../widgets/ui.dart';
 import 'device_gate.dart';
-import 'history_screen.dart';
 
 /// Student phone scans for our beacon, collects RSSI samples, and every ~10 s sends a
 /// signed report (major, latest minor, samples, timestamp). The first report in a class
 /// also carries a fingerprint-key signature; the server decides whether to mark.
 /// Keeps running with the screen locked via a foreground service (see background.dart).
 class StudentHome extends StatefulWidget {
-  const StudentHome({super.key});
+  const StudentHome({super.key, this.onOpenClasses});
+  final VoidCallback? onOpenClasses;
 
   @override
   State<StudentHome> createState() => _StudentHomeState();
@@ -50,12 +54,25 @@ class _StudentHomeState extends State<StudentHome> with WidgetsBindingObserver {
   String _status = 'Tap Start when you are in class.';
   String? _course;
   bool _marked = false;
-  int? _lastRssi;
+  // Live signal in its own notifier: ~10 updates/s repaint one label, not the whole screen.
+  final _rssi = ValueNotifier<int?>(null);
+  bool _problem = false; // owl looks worried
+  List _live = const []; // my courses with a class running now
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _loadLive();
+  }
+
+  Future<void> _loadLive() async {
+    final cached = Api.instance.cached('/me/attendance');
+    if (cached is List) setState(() => _live = cached.where((c) => c['liveSince'] != null).toList());
+    try {
+      final fresh = await Api.instance.get('/me/attendance') as List;
+      if (mounted) setState(() => _live = fresh.where((c) => c['liveSince'] != null).toList());
+    } catch (_) {}
   }
 
   @override
@@ -74,7 +91,12 @@ class _StudentHomeState extends State<StudentHome> with WidgetsBindingObserver {
 
   Future<void> _start() async {
     final problem = await ensureBlePermissions(advertise: false);
-    if (problem != null) return setState(() => _status = problem);
+    if (problem != null) {
+      return setState(() {
+        _status = problem;
+        _problem = true;
+      });
+    }
     await Background.requestPermissions();
     if (FlutterBluePlus.adapterStateNow != BluetoothAdapterState.on) {
       try {
@@ -90,7 +112,7 @@ class _StudentHomeState extends State<StudentHome> with WidgetsBindingObserver {
         final b = data == null ? null : IBeacon.decode(data, beaconUuid);
         if (b == null) continue;
         _samples.add(_Sample(b.major, b.minor, r.rssi));
-        _lastRssi = r.rssi;
+        _rssi.value = r.rssi;
       }
       // First report as soon as we have a few samples, so marking feels instant.
       if (!_reportedOnce && _samples.length >= 3) {
@@ -111,6 +133,7 @@ class _StudentHomeState extends State<StudentHome> with WidgetsBindingObserver {
     await Background.start();
     setState(() {
       _scanning = true;
+      _problem = false;
       _status = 'Looking for your class beacon…';
     });
   }
@@ -164,6 +187,7 @@ class _StudentHomeState extends State<StudentHome> with WidgetsBindingObserver {
       _checkedIn.add(latest.major);
       setState(() {
         _marked = true;
+        _problem = false;
         _course = res['course'] as String?;
         if (!_spotBusy) _status = 'You are marked present ✓';
       });
@@ -180,9 +204,15 @@ class _StudentHomeState extends State<StudentHome> with WidgetsBindingObserver {
     } on ApiException catch (e) {
       if (e.code == 'BIO_REQUIRED') _checkedIn.remove(latest.major); // ask again next round
       if (e.code == 'DEVICE_NOT_APPROVED' || e.code == 'BAD_SIGNATURE') return _deviceChanged();
-      setState(() => _status = _friendly(e));
+      setState(() {
+        _status = _friendly(e);
+        _problem = true;
+      });
     } catch (e) {
-      setState(() => _status = 'Network problem: $e');
+      setState(() {
+        _status = 'Network problem. Retrying…';
+        _problem = true;
+      });
     } finally {
       _reporting = false;
     }
@@ -273,48 +303,220 @@ class _StudentHomeState extends State<StudentHome> with WidgetsBindingObserver {
     _sub?.cancel();
     FlutterBluePlus.stopScan();
     Background.stop();
+    _rssi.dispose();
     super.dispose();
   }
 
+
+  OwlMood get _mood {
+    if (_spotBusy || _pendingSpot != null) return OwlMood.alert;
+    if (_problem) return OwlMood.worried;
+    if (_marked) return OwlMood.happy;
+    if (_scanning) return OwlMood.scanning;
+    return OwlMood.sleeping;
+  }
+
+  String get _firstName => '${Api.instance.user?['name'] ?? ''}'.split(' ').first;
+
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final t = Theme.of(context).textTheme;
+    final muted = t.bodyMedium?.color?.withValues(alpha: 0.65);
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Hi, ${Api.instance.user?['name'] ?? ''}'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.bar_chart),
-            tooltip: 'My attendance',
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const HistoryScreen())),
-          ),
-          IconButton(icon: const Icon(Icons.logout), onPressed: () => logout(context)),
-        ],
-      ),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+        bottom: false,
+        child: RefreshIndicator(
+          onRefresh: _loadLive,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(18, 10, 18, 24),
             children: [
-              const Spacer(),
-              Icon(
-                _marked ? Icons.check_circle : (_scanning ? Icons.bluetooth_searching : Icons.bluetooth),
-                size: 96,
-                color: _marked ? Colors.green : (_scanning ? scheme.primary : Colors.grey),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(_greeting(), style: t.bodyMedium?.copyWith(color: muted)),
+                        Text(_firstName, style: Brand.display(context, size: 30)),
+                      ],
+                    ),
+                  ),
+                  IconButton.filledTonal(
+                    tooltip: 'Log out',
+                    icon: const Icon(Icons.logout_rounded),
+                    onPressed: () => logout(context),
+                  ),
+                ],
+              ).animate().fadeIn(duration: 300.ms),
+              const SizedBox(height: 18),
+              HeroPanel(
+                child: Column(
+                  children: [
+                    Radar(
+                      active: _scanning && !_marked,
+                      size: 230,
+                      child: Owl(mood: _mood, size: 150),
+                    ),
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 350),
+                      transitionBuilder: (c, a) => FadeTransition(
+                        opacity: a,
+                        child: SlideTransition(
+                          position: Tween(begin: const Offset(0, 0.25), end: Offset.zero).animate(a),
+                          child: c,
+                        ),
+                      ),
+                      child: Text(
+                        _status,
+                        key: ValueKey(_status),
+                        textAlign: TextAlign.center,
+                        style: Brand.display(context, size: 22, color: Colors.white),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    if (_course != null) Pill(_course!, color: Brand.goldSoft, icon: Icons.class_outlined),
+                    if (_scanning)
+                      ValueListenableBuilder<int?>(
+                        valueListenable: _rssi,
+                        builder: (_, v, _) => v == null
+                            ? const SizedBox(height: 22)
+                            : Padding(
+                                padding: const EdgeInsets.only(top: 10),
+                                child: _SignalBars(v),
+                              ),
+                      ),
+                    const SizedBox(height: 18),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: _scanning ? Colors.white.withValues(alpha: 0.12) : Brand.gold,
+                          foregroundColor: _scanning ? Colors.white : Brand.navy,
+                        ),
+                        onPressed: _scanning ? _stop : _start,
+                        icon: Icon(_scanning ? Icons.stop_rounded : Icons.fingerprint),
+                        label: Text(_scanning ? 'Stop' : 'Start attendance'),
+                      ),
+                    ),
+                    if (_scanning)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 10),
+                        child: Text(
+                          'You can lock your phone — attendance keeps running.',
+                          style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 12.5),
+                        ),
+                      ),
+                  ],
+                ),
+              ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.06),
+              SectionTitle(
+                'Live now',
+                trailing: TextButton(onPressed: widget.onOpenClasses, child: const Text('All classes')),
               ),
-              const SizedBox(height: 16),
-              Text(_status, textAlign: TextAlign.center, style: t.titleLarge),
-              if (_course != null) Text(_course!, textAlign: TextAlign.center, style: t.bodyLarge),
-              if (_scanning && _lastRssi != null)
-                Text('Signal: $_lastRssi dBm', textAlign: TextAlign.center, style: t.bodySmall),
-              const Spacer(),
-              FilledButton.icon(
-                onPressed: _scanning ? _stop : _start,
-                icon: Icon(_scanning ? Icons.stop : Icons.play_arrow),
-                label: Text(_scanning ? 'Stop' : 'Start attendance'),
+              if (_live.isEmpty)
+                _InfoCard(
+                  icon: Icons.nights_stay_outlined,
+                  text: 'None of your classes are running right now. When one starts, it shows up here.',
+                )
+              else
+                ...[
+                  for (final c in _live)
+                    _InfoCard(
+                      icon: Icons.sensors,
+                      title: '${c['code']} · ${c['name']}',
+                      text: 'Class in progress — tap Start attendance when you are in the room.',
+                      trailing: const Pill('LIVE', color: Brand.absent, pulse: true),
+                    ),
+                ].staggered(),
+              const SizedBox(height: 8),
+              _InfoCard(
+                icon: Icons.verified_user_outlined,
+                title: 'How you are checked',
+                text:
+                    'Your phone hears the class beacon, signs each report with a key locked in its secure chip, '
+                    'and your fingerprint confirms it is you. Stay in range for most of the class.',
               ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _greeting() {
+    final h = DateTime.now().hour;
+    return h < 12 ? 'Good morning' : (h < 17 ? 'Good afternoon' : 'Good evening');
+  }
+}
+
+/// Four bars + dBm, coloured by whether the signal clears the default threshold.
+class _SignalBars extends StatelessWidget {
+  const _SignalBars(this.rssi);
+  final int rssi;
+
+  @override
+  Widget build(BuildContext context) {
+    final level = rssi >= -55 ? 4 : (rssi >= -65 ? 3 : (rssi >= -75 ? 2 : 1));
+    final color = rssi >= -75 ? Brand.goldSoft : const Color(0xFFFF8A7A);
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        for (var i = 1; i <= 4; i++)
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 250),
+            width: 5,
+            height: 5.0 + i * 4,
+            margin: const EdgeInsets.symmetric(horizontal: 1.5),
+            decoration: BoxDecoration(
+              color: i <= level ? color : Colors.white24,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+        const SizedBox(width: 8),
+        Text('$rssi dBm', style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 13)),
+      ],
+    );
+  }
+}
+
+class _InfoCard extends StatelessWidget {
+  const _InfoCard({required this.icon, required this.text, this.title, this.trailing});
+  final IconData icon;
+  final String text;
+  final String? title;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Brand.gold.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, color: Brand.gold, size: 22),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (title != null) Text(title!, style: t.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+                    if (title != null) const SizedBox(height: 3),
+                    Text(text, style: t.bodyMedium?.copyWith(color: t.bodyMedium?.color?.withValues(alpha: 0.7))),
+                  ],
+                ),
+              ),
+              ?trailing,
             ],
           ),
         ),

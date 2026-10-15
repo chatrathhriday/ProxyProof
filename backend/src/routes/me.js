@@ -32,7 +32,17 @@ meRouter.get('/attendance', requireRole('student'), async (req, res) => {
     if (r.status === 'review') c.review++;
     c.sessions.push({ sessionId: r.session_id, date: r.started_at, status: r.status });
   }
+  // Which of my courses have a class running right now (shown as "Live" in the app).
+  const live = await query(
+    `SELECT s.course_id, s.started_at FROM sessions s JOIN enrollments e ON e.course_id = s.course_id
+     WHERE e.student_id = $1 AND s.status = 'active'`,
+    [req.user.id]
+  );
   res.json(
-    [...courses.values()].map((c) => ({ ...c, pct: c.held ? Math.round((c.present / c.held) * 1000) / 10 : null }))
+    [...courses.values()].map((c) => ({
+      ...c,
+      pct: c.held ? Math.round((c.present / c.held) * 1000) / 10 : null,
+      liveSince: live.find((l) => l.course_id === c.courseId)?.started_at || null,
+    }))
   );
 });

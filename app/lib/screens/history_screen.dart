@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 
 import '../api.dart';
+import '../theme.dart';
+import '../widgets/owl.dart';
+import '../widgets/ui.dart';
 
 /// The college rule: attendance must stay at or above this share of classes held.
 const _rule = 0.75;
@@ -11,46 +15,119 @@ int canSkip(int attended, int held) => ((attended / _rule) - held + 1e-9).floor(
 /// Classes in a row you must attend to reach 75%: smallest m with (A + m) / (T + m) >= 0.75.
 int mustAttend(int attended, int held) => ((_rule * held - attended) / (1 - _rule) - 1e-9).ceil().clamp(0, 1 << 30);
 
-/// Student's attendance per course, with the "can I bunk?" calculator.
-class HistoryScreen extends StatefulWidget {
-  const HistoryScreen({super.key});
+/// All of the student's classes: overall %, each course's %, live badges, bunk advice.
+class ClassesTab extends StatefulWidget {
+  const ClassesTab({super.key, this.visible = true});
+  final bool visible;
 
   @override
-  State<HistoryScreen> createState() => _HistoryScreenState();
+  State<ClassesTab> createState() => _ClassesTabState();
 }
 
-class _HistoryScreenState extends State<HistoryScreen> {
-  late Future<List> _data = _load();
+class _ClassesTabState extends State<ClassesTab> {
+  List? _courses;
+  String? _error;
 
-  Future<List> _load() async => await Api.instance.get('/me/attendance') as List;
+  @override
+  void initState() {
+    super.initState();
+    _courses = Api.instance.cached('/me/attendance') as List?; // instant first paint
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(ClassesTab old) {
+    super.didUpdateWidget(old);
+    if (widget.visible && !old.visible) _load(); // refresh whenever the tab is opened
+  }
+
+  Future<void> _load() async {
+    try {
+      final data = await Api.instance.get('/me/attendance') as List;
+      if (mounted) {
+        setState(() {
+          _courses = data;
+          _error = null;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = '$e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final courses = _courses;
     return Scaffold(
-      appBar: AppBar(title: const Text('My attendance')),
-      body: FutureBuilder(
-        future: _data,
-        builder: (context, snap) {
-          if (snap.hasError) return Center(child: Text('${snap.error}'));
-          if (!snap.hasData) return const Center(child: CircularProgressIndicator());
-          final courses = snap.data!;
-          return RefreshIndicator(
-            onRefresh: () async => setState(() => _data = _load()),
-            child: ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
+      body: SafeArea(
+        bottom: false,
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(18, 10, 18, 24),
+            children: [
+              Text('My classes', style: Brand.display(context, size: 30)).animate().fadeIn(),
+              const SizedBox(height: 14),
+              if (courses == null && _error == null) const Skeleton(height: 120, count: 4),
+              if (_error != null && courses == null) Text(_error!),
+              if (courses != null) ...[
+                _Overall(courses),
+                SectionTitle('Courses', trailing: Text('${courses.length}', style: const TextStyle(color: Brand.gold))),
                 if (courses.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.all(32),
-                    child: Center(child: Text('You are not enrolled yet.')),
+                  const Card(
+                    child: Padding(
+                      padding: EdgeInsets.all(20),
+                      child: Text('You are not enrolled in any class yet. Your teacher adds you with your VIT email.'),
+                    ),
                   ),
-                for (final c in courses) _CourseCard(c as Map),
+                ...[for (final c in courses) _CourseCard(c as Map)].staggered(startMs: 100),
               ],
-            ),
-          );
-        },
+            ],
+          ),
+        ),
       ),
     );
+  }
+}
+
+class _Overall extends StatelessWidget {
+  const _Overall(this.courses);
+  final List courses;
+
+  @override
+  Widget build(BuildContext context) {
+    var held = 0, present = 0;
+    for (final c in courses) {
+      held += c['held'] as int;
+      present += c['present'] as int;
+    }
+    final pct = held == 0 ? null : present / held;
+    final ok = pct == null || pct >= _rule;
+    return HeroPanel(
+      child: Row(
+        children: [
+          AttendanceRing(value: pct, size: 104, stroke: 9, label: 'overall', dark: true),
+          const SizedBox(width: 18),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  pct == null ? 'No classes yet' : (ok ? 'You\'re on track' : 'Below 75%'),
+                  style: Brand.display(context, size: 22, color: Colors.white),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '$present of $held classes across ${courses.length} course${courses.length == 1 ? '' : 's'}',
+                  style: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
+                ),
+              ],
+            ),
+          ),
+          Owl(mood: ok ? OwlMood.happy : OwlMood.worried, size: 64),
+        ],
+      ),
+    ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.06);
   }
 }
 
@@ -65,55 +142,52 @@ class _CourseCard extends StatelessWidget {
     final review = c['review'] as int;
     final pct = held == 0 ? null : present / held;
     final ok = pct == null || pct >= _rule;
-    final color = ok ? Colors.green.shade700 : Theme.of(context).colorScheme.error;
+    final color = AttendanceRing.colorFor(pct);
     final t = Theme.of(context).textTheme;
+    final live = c['liveSince'] != null;
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: held == 0 ? null : () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => _CourseDetail(c))),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 64,
-                height: 64,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    CircularProgressIndicator(
-                      value: pct ?? 0,
-                      strokeWidth: 6,
-                      color: color,
-                      backgroundColor: color.withValues(alpha: 0.15),
-                    ),
-                    Center(child: Text(pct == null ? '—' : '${(pct * 100).round()}%', style: t.titleMedium)),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('${c['code']}', style: t.titleMedium),
-                    Text('${c['name']}', style: t.bodySmall),
-                    const SizedBox(height: 6),
-                    Text(held == 0 ? 'No classes held yet' : '$present of $held classes'),
-                    if (review > 0) Text('$review waiting for teacher review', style: t.bodySmall),
-                    if (held > 0)
-                      Text(
-                        ok
-                            ? 'You can skip ${canSkip(present, held)} more and stay at 75%'
-                            : 'Attend the next ${mustAttend(present, held)} to reach 75%',
-                        style: t.bodyMedium?.copyWith(color: color, fontWeight: FontWeight.w600),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Card(
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => _CourseDetail(c))),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Hero(tag: 'ring-${c['courseId']}', child: AttendanceRing(value: pct, size: 70)),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text('${c['code']}', style: t.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+                          ),
+                          if (live) ...[const SizedBox(width: 8), const Pill('LIVE', color: Brand.absent, pulse: true)],
+                        ],
                       ),
-                  ],
+                      Text('${c['name']}', style: t.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis),
+                      const SizedBox(height: 8),
+                      Text(
+                        held == 0
+                            ? 'No classes held yet'
+                            : ok
+                            ? 'Can skip ${canSkip(present, held)} · $present/$held attended'
+                            : 'Attend next ${mustAttend(present, held)} · $present/$held attended',
+                        style: t.bodyMedium?.copyWith(color: held == 0 ? null : color, fontWeight: FontWeight.w600),
+                      ),
+                      if (review > 0)
+                        Text('$review waiting for review', style: t.bodySmall?.copyWith(color: Brand.review)),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+                const Icon(Icons.chevron_right_rounded),
+              ],
+            ),
           ),
         ),
       ),
@@ -142,69 +216,115 @@ class _CourseDetailState extends State<_CourseDetail> {
     final ok = after >= _rule;
     final t = Theme.of(context).textTheme;
     final sessions = (c['sessions'] as List).cast<Map>();
+    final pct = held == 0 ? null : present / held;
 
     return Scaffold(
       appBar: AppBar(title: Text('${c['code']}')),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(18, 4, 18, 28),
         children: [
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Can I bunk?', style: t.titleLarge),
-                  const SizedBox(height: 8),
-                  Text('If I skip the next $skip class${skip == 1 ? '' : 'es'}…'),
-                  Slider(
-                    value: _skip,
-                    min: 1,
-                    max: 10,
-                    divisions: 9,
-                    label: '$skip',
-                    onChanged: (v) => setState(() => _skip = v),
+          Text('${c['name']}', style: t.titleMedium?.copyWith(color: t.bodySmall?.color)),
+          const SizedBox(height: 14),
+          HeroPanel(
+            child: Row(
+              children: [
+                Hero(tag: 'ring-${c['courseId']}', child: AttendanceRing(value: pct, size: 96, stroke: 9, dark: true)),
+                const SizedBox(width: 18),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('$present / $held', style: Brand.display(context, size: 30, color: Colors.white)),
+                      Text('classes attended', style: TextStyle(color: Colors.white.withValues(alpha: 0.7))),
+                      const SizedBox(height: 6),
+                      if (held > 0)
+                        Text(
+                          pct! >= _rule
+                              ? 'Safe to skip ${canSkip(present, held)}'
+                              : 'Attend next ${mustAttend(present, held)} in a row',
+                          style: const TextStyle(color: Brand.goldSoft, fontWeight: FontWeight.w700),
+                        ),
+                    ],
                   ),
-                  Text(
-                    '${(after * 100).toStringAsFixed(1)}% — ${ok ? 'still safe ✓' : 'below 75% ✗'}',
-                    style: t.headlineSmall?.copyWith(
-                      color: ok ? Colors.green.shade700 : Theme.of(context).colorScheme.error,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Now: $present / $held. Safe to skip: ${canSkip(present, held)}. '
-                    'Pending reviews are not counted until the teacher decides.',
-                    style: t.bodySmall,
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 16),
-          Text('Classes', style: t.titleMedium),
-          for (final s in sessions)
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(
-                switch (s['status']) {
-                  'present' => Icons.check_circle,
-                  'review' => Icons.help,
-                  _ => Icons.cancel,
-                },
-                color: switch (s['status']) {
-                  'present' => Colors.green,
-                  'review' => Colors.orange,
-                  _ => Colors.red,
-                },
+          if (held > 0)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Owl(mood: ok ? OwlMood.happy : OwlMood.worried, size: 54),
+                        const SizedBox(width: 10),
+                        Text('Can I bunk?', style: Brand.display(context, size: 22)),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Text('If I skip the next $skip class${skip == 1 ? '' : 'es'}…'),
+                    Slider(
+                      value: _skip,
+                      min: 1,
+                      max: 10,
+                      divisions: 9,
+                      label: '$skip',
+                      onChanged: (v) => setState(() => _skip = v),
+                    ),
+                    TweenAnimationBuilder<double>(
+                      tween: Tween(end: after * 100),
+                      duration: const Duration(milliseconds: 300),
+                      builder: (_, v, _) => Text(
+                        '${v.toStringAsFixed(1)}%  ${ok ? '· still safe' : '· below 75%'}',
+                        style: Brand.display(context, size: 26, color: ok ? Brand.present : Brand.absent),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Reviews pending with your teacher aren\'t counted until they decide.',
+                      style: t.bodySmall,
+                    ),
+                  ],
+                ),
               ),
-              title: Text(_date(s['date'] as String)),
-              trailing: Text(switch (s['status']) {
-                'present' => 'Present',
-                'review' => 'Under review',
-                _ => 'Absent',
-              }),
             ),
+          SectionTitle('History'),
+          if (sessions.isEmpty) const Text('No classes held yet.'),
+          ...[
+            for (final s in sessions)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Card(
+                  child: ListTile(
+                    leading: Icon(
+                      switch (s['status']) {
+                        'present' => Icons.check_circle_rounded,
+                        'review' => Icons.hourglass_top_rounded,
+                        _ => Icons.cancel_rounded,
+                      },
+                      color: switch (s['status']) {
+                        'present' => Brand.present,
+                        'review' => Brand.review,
+                        _ => Brand.absent,
+                      },
+                    ),
+                    title: Text(_date(s['date'] as String)),
+                    trailing: Text(
+                      switch (s['status']) {
+                        'present' => 'Present',
+                        'review' => 'Under review',
+                        _ => 'Absent',
+                      },
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ),
+              ),
+          ].staggered(),
         ],
       ),
     );
@@ -213,6 +333,7 @@ class _CourseDetailState extends State<_CourseDetail> {
   static String _date(String iso) {
     final d = DateTime.parse(iso).toLocal();
     const m = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return '${d.day} ${m[d.month - 1]} · ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+    const w = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    return '${w[d.weekday - 1]}, ${d.day} ${m[d.month - 1]} · ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
   }
 }
