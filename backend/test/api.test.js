@@ -29,6 +29,7 @@ const phoneB2 = makeDevice('Phone B2'); // s2's replacement phone
 before(async () => {
   delete process.env.DATABASE_URL;
   delete process.env.PGLITE_DIR;
+  process.env.ALLOW_PASSWORD_SIGNUP = 'true'; // students use Google in production
   await initDb();
   server = createApp().listen(0);
   base = `http://localhost:${server.address().port}`;
@@ -71,7 +72,7 @@ test('organiser creates course, enrolls students, starts session', async () => {
   assert.equal(c.status, 201);
   courseId = c.body.id;
   const en = await api('POST', `/courses/${courseId}/enroll`, { token: prof, body: { emails: ['s1@t.test', 's2@t.test', 'ghost@t.test'] } });
-  assert.deepEqual(en.body.notFound, ['ghost@t.test']);
+  assert.deepEqual(en.body.invited, ['ghost@t.test']); // claimed on first Google sign-in
 
   const s = await api('POST', '/sessions', { token: prof, body: { courseId } });
   assert.equal(s.status, 201);

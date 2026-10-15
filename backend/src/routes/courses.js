@@ -34,23 +34,30 @@ coursesRouter.get('/', requireAuth, async (req, res) => {
   res.json(rows);
 });
 
-// Enroll existing student accounts by email. Unknown emails are reported back, not created.
+// Enroll students by email. Existing accounts are enrolled now; emails that haven't signed in
+// yet become invites, claimed automatically on that student's first Google sign-in.
 coursesRouter.post('/:id/enroll', requireRole('organiser'), async (req, res) => {
   const course = await one('SELECT * FROM courses WHERE id = $1 AND organiser_id = $2', [req.params.id, req.user.id]);
   if (!course) return res.status(404).json({ error: 'course not found' });
-  const emails = (req.body?.emails || []).map((e) => String(e).toLowerCase().trim());
+  const emails = [...new Set((req.body?.emails || []).map((e) => String(e).toLowerCase().trim()))];
   const enrolled = [];
-  const notFound = [];
+  const invited = [];
+  const notFound = []; // not an email address at all
   for (const email of emails) {
-    const student = await one("SELECT id FROM users WHERE email = $1 AND role = 'student'", [email]);
-    if (!student) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       notFound.push(email);
       continue;
     }
-    await query('INSERT INTO enrollments VALUES ($1, $2) ON CONFLICT DO NOTHING', [course.id, student.id]);
-    enrolled.push(email);
+    const student = await one("SELECT id FROM users WHERE email = $1 AND role = 'student'", [email]);
+    if (student) {
+      await query('INSERT INTO enrollments VALUES ($1, $2) ON CONFLICT DO NOTHING', [course.id, student.id]);
+      enrolled.push(email);
+    } else {
+      await query('INSERT INTO enrollment_invites VALUES ($1, $2) ON CONFLICT DO NOTHING', [course.id, email]);
+      invited.push(email);
+    }
   }
-  res.json({ enrolled, notFound });
+  res.json({ enrolled, invited, notFound });
 });
 
 // Course roster with each student's attendance over closed sessions and their phone status.
@@ -68,12 +75,16 @@ coursesRouter.get('/:id/students', requireRole('organiser', 'admin'), async (req
      WHERE e.course_id = $1 ORDER BY u.name`,
     [course.id]
   );
-  res.json({ course, held, students });
+  const invites = (await query('SELECT email FROM enrollment_invites WHERE course_id = $1 ORDER BY email', [course.id])).map(
+    (r) => r.email
+  );
+  res.json({ course, held, students, invites });
 });
 
 coursesRouter.post('/:id/unenroll', requireRole('organiser'), async (req, res) => {
   const course = await one('SELECT * FROM courses WHERE id = $1 AND organiser_id = $2', [req.params.id, req.user.id]);
   if (!course) return res.status(404).json({ error: 'course not found' });
-  await query('DELETE FROM enrollments WHERE course_id = $1 AND student_id = $2', [course.id, req.body?.studentId]);
+  if (req.body?.email) await query('DELETE FROM enrollment_invites WHERE course_id = $1 AND email = $2', [course.id, req.body.email]);
+  else await query('DELETE FROM enrollments WHERE course_id = $1 AND student_id = $2', [course.id, req.body?.studentId]);
   res.json({ ok: true });
 });

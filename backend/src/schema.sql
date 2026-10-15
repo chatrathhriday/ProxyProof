@@ -23,6 +23,13 @@ CREATE TABLE IF NOT EXISTS enrollments (
   PRIMARY KEY (course_id, student_id)
 );
 
+-- Teacher added an email before that student ever signed in; claimed on first Google login.
+CREATE TABLE IF NOT EXISTS enrollment_invites (
+  course_id INT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+  email     TEXT NOT NULL,
+  PRIMARY KEY (course_id, email)
+);
+
 -- One approved device per student (Phase 3 fills public_key / approval flow).
 CREATE TABLE IF NOT EXISTS devices (
   id          SERIAL PRIMARY KEY,

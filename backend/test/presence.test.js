@@ -28,6 +28,7 @@ async function api(method, path, { token, body } = {}) {
 before(async () => {
   delete process.env.DATABASE_URL;
   delete process.env.PGLITE_DIR;
+  process.env.ALLOW_PASSWORD_SIGNUP = 'true'; // students use Google in production
   resetClock();
   await initDb();
   server = createApp().listen(0);

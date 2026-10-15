@@ -2,7 +2,9 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { one } from './db.js';
+import crypto from 'node:crypto';
+import { one, query } from './db.js';
+import { verifyGoogleIdToken, STUDENT_DOMAIN } from './google.js';
 
 const SECRET = () => process.env.JWT_SECRET || 'dev-only-secret-change-me';
 
@@ -38,8 +40,12 @@ export async function createUser({ email, name, password, role }) {
 
 export const authRouter = express.Router();
 
-// Self-registration is students only; organisers/admins are created by seed/admin.
+// Students join with "Sign in with Google" (college domain only). Password sign-up is
+// switched off in production and only kept for local tests (ALLOW_PASSWORD_SIGNUP=true).
+// Organisers/admins are created by the admin; seeded demo accounts keep their passwords.
 authRouter.post('/register', async (req, res) => {
+  if (process.env.ALLOW_PASSWORD_SIGNUP !== 'true')
+    return res.status(403).json({ error: `Students sign in with their @${STUDENT_DOMAIN} Google account.` });
   const { email, name, password } = req.body || {};
   if (!email || !name || !password || password.length < 6)
     return res.status(400).json({ error: 'email, name and password (6+ chars) required' });
@@ -56,6 +62,30 @@ authRouter.post('/login', async (req, res) => {
     return res.status(401).json({ error: 'wrong email or password' });
   const { password_hash, ...safe } = user;
   res.json({ token: signJwt(user), user: safe });
+});
+
+// Student login/sign-up in one step. First sign-in creates the account (no password) and
+// turns any course invites the teacher made for this email into enrolments.
+authRouter.post('/google', async (req, res) => {
+  let profile;
+  try {
+    profile = await verifyGoogleIdToken(String(req.body?.idToken || ''));
+  } catch (e) {
+    return res.status(403).json({ error: e.message || 'Google sign-in failed' });
+  }
+  let user = await one('SELECT id, email, name, role FROM users WHERE email = $1', [profile.email]);
+  if (user && user.role !== 'student') return res.status(403).json({ error: 'Staff accounts sign in with email and password.' });
+  if (!user) {
+    // Random unusable password: these accounts can only ever log in through Google.
+    user = await createUser({ ...profile, password: crypto.randomBytes(32).toString('hex'), role: 'student' });
+  }
+  await query(
+    `INSERT INTO enrollments (course_id, student_id)
+     SELECT course_id, $2 FROM enrollment_invites WHERE email = $1 ON CONFLICT DO NOTHING`,
+    [profile.email, user.id]
+  );
+  await query('DELETE FROM enrollment_invites WHERE email = $1', [profile.email]);
+  res.json({ token: signJwt(user), user });
 });
 
 authRouter.get('/me', requireAuth, async (req, res) => {
