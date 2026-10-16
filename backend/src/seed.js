@@ -6,6 +6,7 @@ import 'dotenv/config';
 import { pathToFileURL } from 'node:url';
 import { initDb, one, query, closeDb } from './db.js';
 import { createUser } from './auth.js';
+import { seedDemoCourses, enrolInDemo } from './demo.js';
 
 async function upsertUser(email, name, role) {
   return (await one('SELECT * FROM users WHERE email = $1', [email])) ||
@@ -24,6 +25,9 @@ export async function seedDemo() {
     (await one("INSERT INTO courses (code, name, organiser_id) VALUES ('CSE1001', 'Intro to Programming', $1) RETURNING *", [prof.id]));
   for (const s of students)
     await query('INSERT INTO enrollments VALUES ($1, $2) ON CONFLICT DO NOTHING', [course.id, s.id]);
+  // A fuller semester: six timetabled courses with four weeks of past classes.
+  await seedDemoCourses(prof.id);
+  for (const s of students) await enrolInDemo(s.id);
   console.log('Seeded: admin@ / prof@ / student1..3@proxyproof.test (password123)');
 }
 

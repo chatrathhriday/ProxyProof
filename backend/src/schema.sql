@@ -23,6 +23,9 @@ CREATE TABLE IF NOT EXISTS enrollments (
   PRIMARY KEY (course_id, student_id)
 );
 
+-- Weekly timetable: [{"d":1,"s":"09:00","e":"09:50","room":"SJT 304"}], d = 1 (Mon) .. 7 (Sun).
+ALTER TABLE courses ADD COLUMN IF NOT EXISTS schedule JSONB NOT NULL DEFAULT '[]';
+
 -- Teacher added an email before that student ever signed in; claimed on first Google login.
 CREATE TABLE IF NOT EXISTS enrollment_invites (
   course_id INT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
@@ -84,6 +87,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS one_device_per_session
 -- Phase 5: presence over the whole class + spot checks.
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS expected_minutes INT NOT NULL DEFAULT 50;
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS finalized_at TIMESTAMPTZ;  -- teacher pressed "Approve all"
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS demo BOOLEAN NOT NULL DEFAULT false; -- generated history for demos
 
 -- A spot check opens at starts_at. Each marked student gets it with their next sighting
 -- (delivered_at) and must answer with a fingerprint signature before deadline (+20 s).

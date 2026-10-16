@@ -8,8 +8,12 @@ import { verifyGoogleIdToken, STUDENT_DOMAIN } from './google.js';
 
 const SECRET = () => process.env.JWT_SECRET || 'dev-only-secret-change-me';
 
+// Students stay signed in on their phone for 30 days (the phone itself is bound by hardware
+// keys + fingerprint, so a long session isn't the weak point). Staff sessions stay short.
 export const signJwt = (user) =>
-  jwt.sign({ id: user.id, role: user.role, name: user.name }, SECRET(), { expiresIn: '12h' });
+  jwt.sign({ id: user.id, role: user.role, name: user.name }, SECRET(), {
+    expiresIn: user.role === 'student' ? '30d' : '12h',
+  });
 
 export const verifyJwt = (token) => jwt.verify(token, SECRET());
 

@@ -10,7 +10,7 @@ export const meRouter = express.Router();
 // a student uses to decide whether they can skip a class.
 meRouter.get('/attendance', requireRole('student'), async (req, res) => {
   const rows = await query(
-    `SELECT c.id AS course_id, c.code, c.name, s.id AS session_id, s.started_at, s.closed_at,
+    `SELECT c.id AS course_id, c.code, c.name, c.schedule, s.id AS session_id, s.started_at, s.closed_at,
             COALESCE(a.status, 'absent') AS status
      FROM enrollments e
      JOIN courses c ON c.id = e.course_id
@@ -24,7 +24,7 @@ meRouter.get('/attendance', requireRole('student'), async (req, res) => {
   const courses = new Map();
   for (const r of rows) {
     if (!courses.has(r.course_id))
-      courses.set(r.course_id, { courseId: r.course_id, code: r.code, name: r.name, held: 0, present: 0, review: 0, sessions: [] });
+      courses.set(r.course_id, { courseId: r.course_id, code: r.code, name: r.name, schedule: r.schedule || [], held: 0, present: 0, review: 0, sessions: [] });
     const c = courses.get(r.course_id);
     if (!r.session_id) continue; // course with no closed sessions yet
     c.held++;
@@ -42,6 +42,8 @@ meRouter.get('/attendance', requireRole('student'), async (req, res) => {
     [...courses.values()].map((c) => ({
       ...c,
       pct: c.held ? Math.round((c.present / c.held) * 1000) / 10 : null,
+      // classes attended in a row, counting back from the most recent (sessions are newest first)
+      streak: c.sessions.findIndex((s) => s.status !== 'present') === -1 ? c.sessions.length : c.sessions.findIndex((s) => s.status !== 'present'),
       liveSince: live.find((l) => l.course_id === c.courseId)?.started_at || null,
     }))
   );

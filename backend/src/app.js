@@ -8,6 +8,7 @@ import { sessionsRouter } from './routes/sessions.js';
 import { attendanceRouter } from './routes/attendance.js';
 import { devicesRouter } from './routes/devices.js';
 import { meRouter } from './routes/me.js';
+import { adminRouter } from './routes/admin.js';
 
 // The organiser dashboard is built into dashboard/dist and served from this same server:
 // one deploy, one URL, no cross-origin setup.
@@ -25,6 +26,7 @@ export function createApp() {
   app.use('/attendance', attendanceRouter);
   app.use('/devices', devicesRouter);
   app.use('/me', meRouter);
+  app.use('/admin', adminRouter);
 
   if (existsSync(DASHBOARD)) {
     app.use(express.static(DASHBOARD));
