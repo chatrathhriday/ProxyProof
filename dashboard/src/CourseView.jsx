@@ -9,6 +9,13 @@ export default function CourseView({ id, onBack }) {
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
   const [onlyDefaulters, setOnlyDefaulters] = useState(false)
+  const [suggestions, setSuggestions] = useState([])
+
+  async function acceptSuggestion(s) {
+    await api('POST', `/courses/${id}/enroll`, { emails: [s.existing] })
+    setSuggestions((cur) => cur.filter((x) => x !== s))
+    await load()
+  }
 
   const load = useCallback(() => api('GET', `/courses/${id}/students`).then(setData).catch((e) => setError(e.message)), [id])
   useEffect(() => {
@@ -23,6 +30,7 @@ export default function CourseView({ id, onBack }) {
     setError(null)
     try {
       const r = await api('POST', `/courses/${id}/enroll`, { emails: list })
+      setSuggestions(r.suggestions || [])
       setMsg(
         `Added ${r.enrolled.length}.` +
           (r.invited?.length ? ` Invited ${r.invited.length} — they join automatically on their first Google sign-in.` : '') +
@@ -102,6 +110,14 @@ export default function CourseView({ id, onBack }) {
           </button>
           {msg && <span className="muted small">{msg}</span>}
         </div>
+        {suggestions.map((s) => (
+          <p key={s.typed} className="banner">
+            “{s.typed}” isn't registered — did you mean <strong>{s.existing}</strong>?{' '}
+            <button type="button" className="btn small" onClick={() => acceptSuggestion(s)}>
+              Add {s.existing} instead
+            </button>
+          </p>
+        ))}
       </form>
 
       <div className="actions" style={{ alignItems: 'center', marginBottom: 10 }}>

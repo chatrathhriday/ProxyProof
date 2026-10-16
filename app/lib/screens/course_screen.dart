@@ -420,6 +420,26 @@ class _StudentsState extends State<_Students> {
         );
       }
       HapticFeedback.mediumImpact();
+      // Probable typos of an existing student's email: offer the real address.
+      for (final s in (r['suggestions'] as List? ?? const [])) {
+        if (!mounted) break;
+        final yes = await showDialog<bool>(
+          context: context,
+          builder: (c) => AlertDialog(
+            title: const Text('Did you mean…'),
+            content: Text('"${s['typed']}" isn\'t registered.\n\nAdd ${s['existing']} instead?'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('No')),
+              FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Add')),
+            ],
+          ),
+        );
+        if (yes == true) {
+          await Api.instance.post('/courses/${widget.courseId}/enroll', {
+            'emails': [s['existing']],
+          });
+        }
+      }
       await _load();
     } catch (e) {
       if (mounted) _toast(context, '$e');

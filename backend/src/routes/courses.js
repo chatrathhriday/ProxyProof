@@ -44,6 +44,7 @@ coursesRouter.post('/:id/enroll', requireRole('organiser'), async (req, res) => 
   const enrolled = [];
   const invited = [];
   const notFound = []; // not an email address at all
+  const suggestions = []; // probable typos of an existing student's email
   for (const email of emails) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       notFound.push(email);
@@ -54,11 +55,23 @@ coursesRouter.post('/:id/enroll', requireRole('organiser'), async (req, res) => 
       await query('INSERT INTO enrollments VALUES ($1, $2) ON CONFLICT DO NOTHING', [course.id, student.id]);
       enrolled.push(email);
     } else {
+      // Typo guard: "lakshyadaga2026@" vs the real "lakshya.daga2026@" are different addresses,
+      // so an invite would never be claimed. If an existing student matches once dots are
+      // ignored, suggest them instead of silently inviting the misspelling.
+      const [local, domain] = email.split('@');
+      const near = await one(
+        "SELECT email FROM users WHERE role = 'student' AND split_part(email, '@', 2) = $1 AND replace(split_part(email, '@', 1), '.', '') = $2",
+        [domain, local.replace(/\./g, '')]
+      );
+      if (near) {
+        suggestions.push({ typed: email, existing: near.email });
+        continue;
+      }
       await query('INSERT INTO enrollment_invites VALUES ($1, $2) ON CONFLICT DO NOTHING', [course.id, email]);
       invited.push(email);
     }
   }
-  res.json({ enrolled, invited, notFound });
+  res.json({ enrolled, invited, notFound, suggestions });
 });
 
 // Course roster with each student's attendance over closed sessions and their phone status.

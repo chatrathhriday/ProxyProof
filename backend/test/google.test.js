@@ -69,6 +69,14 @@ test('VIT Google account signs in, gets an account and claims course invites', a
   assert.equal(again.body.user.id, r.body.user.id);
 });
 
+test('a misspelt email (missing dot) is suggested, not invited', async () => {
+  const prof = (await api('POST', '/auth/login', { body: { email: 'prof@vit.test', password: 'password123' } })).body.token;
+  const course = (await api('GET', '/courses', { token: prof })).body[0];
+  const r = await api('POST', `/courses/${course.id}/enroll`, { token: prof, body: { emails: ['riyas2024@vitstudent.ac.in'] } });
+  assert.deepEqual(r.body.invited, []);
+  assert.deepEqual(r.body.suggestions, [{ typed: 'riyas2024@vitstudent.ac.in', existing: 'riya.s2024@vitstudent.ac.in' }]);
+});
+
 test('rejects personal Gmail, wrong domain, unverified email, wrong audience, forged signature', async () => {
   assert.equal((await google(googleToken({ email: 'riya@gmail.com' }))).status, 403);
   assert.equal((await google(googleToken({ email: 'a@vitstudent.ac.in.evil.com', hd: 'evil.com' }))).status, 403);
