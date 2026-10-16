@@ -104,6 +104,16 @@ class Api {
   }
 
   Future<dynamic> post(String path, [Object? body]) => _send('POST', path, body);
+  Future<dynamic> put(String path, [Object? body]) => _send('PUT', path, body);
+
+  /// Raw text (e.g. a CSV export) with the same auth.
+  Future<String> getText(String path) async {
+    final res = await _client
+        .get(Uri.parse('$baseUrl$path'), headers: {if (token != null) 'authorization': 'Bearer $token'})
+        .timeout(const Duration(seconds: 30));
+    if (res.statusCode >= 400) throw ApiException(res.statusCode, 'HTTP ${res.statusCode}');
+    return res.body;
+  }
 
   Future<dynamic> _send(String method, String path, [Object? body]) async {
     final req = http.Request(method, Uri.parse('$baseUrl$path'))..headers['content-type'] = 'application/json';

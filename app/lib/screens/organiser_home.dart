@@ -7,7 +7,7 @@ import '../theme.dart';
 import '../widgets/owl.dart';
 import '../widgets/ui.dart';
 import 'broadcast_screen.dart';
-import 'course_stats_screen.dart';
+import 'course_screen.dart';
 
 /// Lists the organiser's courses; one tap starts a session and opens the broadcast screen.
 class OrganiserHome extends StatefulWidget {
@@ -101,11 +101,60 @@ class _OrganiserHomeState extends State<OrganiserHome> {
     }
   }
 
+  Future<void> _newCourse() async {
+    final code = TextEditingController(), name = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('New course'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: code,
+              textCapitalization: TextCapitalization.characters,
+              decoration: const InputDecoration(labelText: 'Code (e.g. CSE3001)'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: name,
+              decoration: const InputDecoration(labelText: 'Name'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Create')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      final c = await Api.instance.post('/courses', {'code': code.text, 'name': name.text});
+      if (!mounted) return;
+      setState(() => _data = _load());
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => CourseScreen(courseId: c['id'] as int, title: '${c['code']}'),
+        ),
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
     final name = '${Api.instance.user?['name'] ?? ''}';
     return Scaffold(
+      floatingActionButton: FloatingActionButton.extended(
+        backgroundColor: Brand.gold,
+        foregroundColor: Brand.navy,
+        onPressed: _newCourse,
+        icon: const Icon(Icons.add_rounded),
+        label: const Text('New course'),
+      ),
       body: SafeArea(
         child: FutureBuilder(
           future: _data,
@@ -264,12 +313,11 @@ class _OrganiserHomeState extends State<OrganiserHome> {
                                     ),
                                   ),
                                   IconButton(
-                                    tooltip: 'Attendance & defaulters',
+                                    tooltip: 'Course: stats, classes, students, timetable, notices',
                                     icon: const Icon(Icons.insights_rounded, color: Brand.gold),
                                     onPressed: () => Navigator.of(context).push(
                                       MaterialPageRoute(
-                                        builder: (_) =>
-                                            CourseStatsScreen(courseId: c['id'] as int, title: '${c['code']}'),
+                                        builder: (_) => CourseScreen(courseId: c['id'] as int, title: '${c['code']}'),
                                       ),
                                     ),
                                   ),

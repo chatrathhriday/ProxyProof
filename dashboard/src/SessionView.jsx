@@ -7,6 +7,7 @@ const VERDICT = {
   present: { label: 'Present', cls: 'ok' },
   review: { label: 'Needs review', cls: 'warn' },
   absent: { label: 'Absent', cls: 'bad' },
+  excused: { label: 'Excused', cls: '' },
 }
 const SPOT = {
   passed: { label: 'Passed', cls: 'ok' },

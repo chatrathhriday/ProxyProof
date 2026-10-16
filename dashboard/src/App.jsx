@@ -3,7 +3,7 @@ import { getAuth, setAuth } from './api.js'
 import Login from './Login.jsx'
 import Home from './Home.jsx'
 import SessionView from './SessionView.jsx'
-import Approvals from './Approvals.jsx'
+import AdminConsole from './AdminConsole.jsx'
 import CourseView from './CourseView.jsx'
 
 // No router on purpose: three screens, picked from state. Keeps every URL path free
@@ -54,7 +54,7 @@ export default function App() {
       </header>
       <main className="content">
         {auth.user.role === 'admin' ? (
-          <Approvals />
+          <AdminConsole />
         ) : sessionId ? (
           <SessionView id={sessionId} onBack={() => setSessionId(null)} />
         ) : courseId ? (

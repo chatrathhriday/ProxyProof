@@ -6,14 +6,20 @@ import '../theme.dart';
 import '../widgets/owl.dart';
 import '../widgets/ui.dart';
 
-/// The college rule: attendance must stay at or above this share of classes held.
+/// Default college rule; the server sends the admin's actual policy per course ('rule').
 const _rule = 0.75;
 
+/// Classes that count (excused ones don't) and the rule for a course from /me/attendance.
+int _counted(Map c) => ((c['counted'] ?? c['held']) as int);
+double _ruleOf(Map c) => ((c['rule'] as num?) ?? 75) / 100;
+
 /// Classes you can still skip and stay >= 75%: largest k with A / (T + k) >= 0.75.
-int canSkip(int attended, int held) => ((attended / _rule) - held + 1e-9).floor().clamp(0, 1 << 30);
+int canSkip(int attended, int held, [double rule = _rule]) =>
+    ((attended / rule) - held + 1e-9).floor().clamp(0, 1 << 30);
 
 /// Classes in a row you must attend to reach 75%: smallest m with (A + m) / (T + m) >= 0.75.
-int mustAttend(int attended, int held) => ((_rule * held - attended) / (1 - _rule) - 1e-9).ceil().clamp(0, 1 << 30);
+int mustAttend(int attended, int held, [double rule = _rule]) =>
+    ((rule * held - attended) / (1 - rule) - 1e-9).ceil().clamp(0, 1 << 30);
 
 /// All of the student's classes: overall %, each course's %, live badges, bunk advice.
 class ClassesTab extends StatefulWidget {
@@ -101,11 +107,12 @@ class _Overall extends StatelessWidget {
   Widget build(BuildContext context) {
     var held = 0, present = 0;
     for (final c in courses) {
-      held += c['held'] as int;
+      held += _counted(c as Map);
       present += c['present'] as int;
     }
     final pct = held == 0 ? null : present / held;
-    final ok = pct == null || pct >= _rule;
+    final rule = courses.isEmpty ? _rule : _ruleOf(courses.first as Map);
+    final ok = pct == null || pct >= rule;
     return HeroPanel(
       child: Row(
         children: [
@@ -116,7 +123,7 @@ class _Overall extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  pct == null ? 'No classes yet' : (ok ? 'You\'re on track' : 'Below 75%'),
+                  pct == null ? 'No classes yet' : (ok ? 'You\'re on track' : 'Below ${(rule * 100).round()}%'),
                   style: Brand.display(context, size: 22, color: Colors.white),
                 ),
                 const SizedBox(height: 6),
@@ -140,11 +147,12 @@ class _CourseCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final held = c['held'] as int;
+    final held = _counted(c);
+    final rule = _ruleOf(c);
     final present = c['present'] as int;
     final review = c['review'] as int;
     final pct = held == 0 ? null : present / held;
-    final ok = pct == null || pct >= _rule;
+    final ok = pct == null || pct >= rule;
     final color = AttendanceRing.colorFor(pct);
     final t = Theme.of(context).textTheme;
     final live = c['liveSince'] != null;
@@ -187,10 +195,12 @@ class _CourseCard extends StatelessWidget {
                         held == 0
                             ? 'No classes held yet'
                             : ok
-                            ? 'Can skip ${canSkip(present, held)} · $present/$held attended'
-                            : 'Attend next ${mustAttend(present, held)} · $present/$held attended',
+                            ? 'Can skip ${canSkip(present, held, rule)} · $present/$held attended'
+                            : 'Attend next ${mustAttend(present, held, rule)} · $present/$held attended',
                         style: t.bodyMedium?.copyWith(color: held == 0 ? null : color, fontWeight: FontWeight.w600),
                       ),
+                      if ((c['excused'] as int? ?? 0) > 0)
+                        Text('${c['excused']} excused (not counted)', style: t.bodySmall?.copyWith(color: Brand.navy3)),
                       if (review > 0)
                         Text('$review waiting for review', style: t.bodySmall?.copyWith(color: Brand.review)),
                     ],
@@ -220,11 +230,12 @@ class _CourseDetailState extends State<_CourseDetail> {
   @override
   Widget build(BuildContext context) {
     final c = widget.c;
-    final held = c['held'] as int;
+    final held = _counted(c);
+    final rule = _ruleOf(c);
     final present = c['present'] as int;
     final skip = _skip.round();
     final after = present / (held + skip);
-    final ok = after >= _rule;
+    final ok = after >= rule;
     final t = Theme.of(context).textTheme;
     final sessions = (c['sessions'] as List).cast<Map>();
     final pct = held == 0 ? null : present / held;
@@ -253,9 +264,9 @@ class _CourseDetailState extends State<_CourseDetail> {
                       const SizedBox(height: 6),
                       if (held > 0)
                         Text(
-                          pct! >= _rule
-                              ? 'Safe to skip ${canSkip(present, held)}'
-                              : 'Attend next ${mustAttend(present, held)} in a row',
+                          pct! >= rule
+                              ? 'Safe to skip ${canSkip(present, held, rule)}'
+                              : 'Attend next ${mustAttend(present, held, rule)} in a row',
                           style: const TextStyle(color: Brand.goldSoft, fontWeight: FontWeight.w700),
                         ),
                     ],
@@ -293,7 +304,7 @@ class _CourseDetailState extends State<_CourseDetail> {
                       tween: Tween(end: after * 100),
                       duration: const Duration(milliseconds: 300),
                       builder: (_, v, _) => Text(
-                        '${v.toStringAsFixed(1)}%  ${ok ? '· still safe' : '· below 75%'}',
+                        '${v.toStringAsFixed(1)}%  ${ok ? '· still safe' : '· below ${(rule * 100).round()}%'}',
                         style: Brand.display(context, size: 26, color: ok ? Brand.present : Brand.absent),
                       ),
                     ),
@@ -322,11 +333,13 @@ class _CourseDetailState extends State<_CourseDetail> {
                       switch (s['status']) {
                         'present' => Icons.check_circle_rounded,
                         'review' => Icons.hourglass_top_rounded,
+                        'excused' => Icons.healing_rounded,
                         _ => Icons.cancel_rounded,
                       },
                       color: switch (s['status']) {
                         'present' => Brand.present,
                         'review' => Brand.review,
+                        'excused' => Brand.navy3,
                         _ => Brand.absent,
                       },
                     ),
@@ -334,6 +347,7 @@ class _CourseDetailState extends State<_CourseDetail> {
                     trailing: Text(switch (s['status']) {
                       'present' => 'Present',
                       'review' => 'Under review',
+                      'excused' => 'Excused',
                       _ => 'Absent',
                     }, style: const TextStyle(fontWeight: FontWeight.w600)),
                   ),
@@ -396,6 +410,7 @@ class _Heatmap extends StatelessWidget {
                             final color = switch (st) {
                               'present' => Brand.present,
                               'review' => Brand.review,
+                              'excused' => Brand.navy3,
                               'absent' => Brand.absent,
                               _ => empty,
                             };

@@ -11,6 +11,7 @@ import '../widgets/owl.dart';
 /// checks it. A public identifier, not a secret.
 const _googleServerClientId = '37429262055-7u3mm2sj9takv871no63dpeikab9rj4m.apps.googleusercontent.com';
 const studentDomain = 'vitstudent.ac.in';
+const facultyDomain = 'vit.ac.in';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key, this.notice});
@@ -27,6 +28,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _email = TextEditingController();
   final _password = TextEditingController();
   bool _staff = false;
+  bool _faculty = false; // Student / Faculty switch
   bool _busy = false;
   late String? _error = widget.notice;
   OwlMood _mood = OwlMood.idle;
@@ -67,7 +69,8 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _google() => _run(() async {
     final g = GoogleSignIn.instance;
     if (!_googleReady) {
-      await g.initialize(serverClientId: _googleServerClientId, hostedDomain: studentDomain);
+      // No hostedDomain hint: one button serves both domains; the server routes by the verified hd.
+      await g.initialize(serverClientId: _googleServerClientId);
       _googleReady = true;
     }
     await g.signOut(); // always show the account picker, so the right account is chosen
@@ -155,11 +158,31 @@ class _LoginScreenState extends State<LoginScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            Text('Students', style: Brand.display(context, size: 22)),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Sign in with your @$studentDomain Google account.',
-                              style: TextStyle(color: scheme.onSurface.withValues(alpha: 0.65)),
+                            SegmentedButton<bool>(
+                              segments: const [
+                                ButtonSegment(value: false, icon: Icon(Icons.school_outlined), label: Text('Student')),
+                                ButtonSegment(
+                                  value: true,
+                                  icon: Icon(Icons.co_present_outlined),
+                                  label: Text('Faculty'),
+                                ),
+                              ],
+                              selected: {_faculty},
+                              onSelectionChanged: (v) => setState(() {
+                                _faculty = v.first;
+                                _error = null;
+                              }),
+                            ),
+                            const SizedBox(height: 14),
+                            AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 250),
+                              child: Text(
+                                _faculty
+                                    ? 'Sign in with your @$facultyDomain Google account. New faculty are approved once by the admin.'
+                                    : 'Sign in with your @$studentDomain Google account.',
+                                key: ValueKey(_faculty),
+                                style: TextStyle(color: scheme.onSurface.withValues(alpha: 0.65)),
+                              ),
                             ),
                             const SizedBox(height: 16),
                             _GoogleButton(onPressed: _busy ? null : _google, busy: _busy && !_staff),
@@ -179,7 +202,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 const Expanded(child: Divider()),
                                 TextButton(
                                   onPressed: () => setState(() => _staff = !_staff),
-                                  child: Text(_staff ? 'Hide staff login' : 'Faculty & demo login'),
+                                  child: Text(_staff ? 'Hide password login' : 'Admin & demo login'),
                                 ),
                                 const Expanded(child: Divider()),
                               ],

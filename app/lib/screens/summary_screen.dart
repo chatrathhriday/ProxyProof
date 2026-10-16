@@ -1,5 +1,9 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../api.dart';
 import '../theme.dart';
@@ -51,6 +55,53 @@ class _SummaryScreenState extends State<SummaryScreen> {
     }
   }
 
+  /// Tap any student in the full list to set present / excused / absent.
+  Future<void> _change(Map a) async {
+    final status = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (c) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: Text('${a['name']}', style: Brand.display(c, size: 20)),
+              subtitle: Text('${a['reason']}'),
+            ),
+            for (final (s, label, icon, color) in [
+              ('present', 'Present', Icons.check_circle_rounded, Brand.present),
+              ('excused', 'Excused (medical / on duty)', Icons.healing_rounded, Brand.navy3),
+              ('absent', 'Absent', Icons.cancel_rounded, Brand.absent),
+            ])
+              ListTile(
+                leading: Icon(icon, color: color),
+                title: Text(label),
+                onTap: () => Navigator.pop(c, s),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (status != null) await _mark(a, status);
+  }
+
+  /// Share this class's CSV (WhatsApp, Drive, mail…) straight from the phone.
+  Future<void> _share() async {
+    try {
+      final csv = await Api.instance.getText('/sessions/${widget.sessionId}/export.csv');
+      final name = '${widget.title}-session${widget.sessionId}.csv';
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile.fromData(Uint8List.fromList(utf8.encode(csv)), mimeType: 'text/csv', name: name)],
+          fileNameOverrides: [name],
+          subject: '${widget.title} attendance',
+        ),
+      );
+    } catch (e) {
+      setState(() => _error = '$e');
+    }
+  }
+
   Future<void> _mark(Map a, String status) => _do(
     () async =>
         Api.instance.post('/sessions/${widget.sessionId}/attendance', {'studentId': a['student_id'], 'status': status}),
@@ -76,7 +127,10 @@ class _SummaryScreenState extends State<SummaryScreen> {
     final allClear = review.isEmpty;
 
     return Scaffold(
-      appBar: AppBar(title: Text('${widget.title} · summary')),
+      appBar: AppBar(
+        title: Text('${widget.title} · summary'),
+        actions: [IconButton(tooltip: 'Share CSV', icon: const Icon(Icons.ios_share_rounded), onPressed: _share)],
+      ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(18, 4, 18, 28),
         children: [
@@ -155,7 +209,15 @@ class _SummaryScreenState extends State<SummaryScreen> {
                                   child: const Text('Absent'),
                                 ),
                               ),
-                              const SizedBox(width: 10),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: OutlinedButton(
+                                  style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(42)),
+                                  onPressed: _busy ? null : () => _mark(a, 'excused'),
+                                  child: const Text('Excused'),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
                               Expanded(
                                 child: FilledButton(
                                   style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(42)),
@@ -199,15 +261,18 @@ class _SummaryScreenState extends State<SummaryScreen> {
                           contentPadding: const EdgeInsets.symmetric(horizontal: 4),
                           title: Text('${a['name']}', style: const TextStyle(fontWeight: FontWeight.w600)),
                           subtitle: Text('${a['reason']}'),
+                          onTap: () => _change(a),
                           trailing: Pill(
                             switch (a['verdict']) {
                               'present' => 'Present',
                               'review' => 'Review',
+                              'excused' => 'Excused',
                               _ => 'Absent',
                             },
                             color: switch (a['verdict']) {
                               'present' => Brand.present,
                               'review' => Brand.review,
+                              'excused' => Brand.navy3,
                               _ => Brand.absent,
                             },
                           ),

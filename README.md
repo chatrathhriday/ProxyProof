@@ -14,6 +14,17 @@ rules and presence over the whole class make proxy attendance impractical.
 
 ---
 
+## Roles
+
+| Role | Signs in with | Can |
+|---|---|---|
+| **Student** | Google, **@vitstudent.ac.in** only | mark attendance (beacon + fingerprint), see classes, timetable, streaks, notices, bunk calculator |
+| **Faculty** | Google, **@vit.ac.in** — approved once by the admin (or pre-approved) | create courses, add students, edit timetables, run classes, spot checks, summaries, **excused** absences, announcements, history + trend, defaulters, CSV |
+| **Admin** | password | college overview, approve faculty and phone changes, people search, disable accounts, reset a phone, move courses, **college policy** (min %, thresholds), **audit log** of every manual change |
+
+Excused classes (medical leave / on duty) are left out of the percentage: present / (held − excused).
+Every manual override, approval and policy change is written to an audit log that only the admin can read.
+
 ## Teacher experience: 20 seconds per class
 
 1. Open the app → tap **Start** next to the course. *(the phone starts broadcasting)*

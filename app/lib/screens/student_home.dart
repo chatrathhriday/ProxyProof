@@ -61,6 +61,7 @@ class _StudentHomeState extends State<StudentHome> with WidgetsBindingObserver {
   bool _problem = false; // owl looks worried
   List _live = const []; // my courses with a class running now
   List _courses = const []; // all my courses (timetables for 'next class')
+  List _notices = const []; // teachers' announcements
   final _confetti = ConfettiController();
   Timer? _clock; // keeps 'next class in N min' fresh
 
@@ -80,6 +81,10 @@ class _StudentHomeState extends State<StudentHome> with WidgetsBindingObserver {
     try {
       final fresh = await Api.instance.get('/me/attendance') as List;
       if (mounted) _setCourses(fresh);
+    } catch (_) {}
+    try {
+      final n = await Api.instance.get('/me/announcements') as List;
+      if (mounted) setState(() => _notices = n);
     } catch (_) {}
   }
 
@@ -428,6 +433,17 @@ class _StudentHomeState extends State<StudentHome> with WidgetsBindingObserver {
                 ),
               ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.06),
               ..._timetable(context),
+              if (_notices.isNotEmpty) ...[
+                const SectionTitle('Notices'),
+                ...[
+                  for (final n in _notices.take(4))
+                    _InfoCard(
+                      icon: Icons.campaign_rounded,
+                      title: '${n['code']} · ${n['author']}',
+                      text: '${n['body']}',
+                    ),
+                ].staggered(),
+              ],
               SectionTitle(
                 'Live now',
                 trailing: TextButton(onPressed: widget.onOpenClasses, child: const Text('All classes')),
