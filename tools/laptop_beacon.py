@@ -65,7 +65,13 @@ async def main():
     pub = None
     try:
         while True:
-            status, b = call(args.api, "GET", f"/sessions/{session['id']}/beacon", token)
+            try:
+                status, b = call(args.api, "GET", f"/sessions/{session['id']}/beacon", token)
+            except (urllib.error.URLError, TimeoutError, OSError) as e:
+                # Wi-Fi blip / switching networks: keep the last token on air and retry.
+                print(f"  network problem ({e}); retrying in 3 s")
+                await asyncio.sleep(3)
+                continue
             if status != 200:
                 raise SystemExit(f"beacon error: {b}")
             if pub:
@@ -73,7 +79,8 @@ async def main():
             pub = ibeacon_publisher(b["uuid"], b["major"], b["minor"])
             pub.start()
             await asyncio.sleep(0.5)
-            print(f"  broadcasting major={b['major']} minor={b['minor']} status={pub.status}")
+            state = {2: "on air", 5: "ABORTED - is the laptop's Bluetooth on?"}.get(int(pub.status), f"status {int(pub.status)}")
+            print(f"  broadcasting major={b['major']} minor={b['minor']} ({state})")
             await asyncio.sleep(b["msUntilNext"] / 1000 + 0.3)
     finally:
         if pub:
