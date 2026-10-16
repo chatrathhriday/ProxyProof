@@ -219,6 +219,11 @@ cd app && flutter run         # then: adb reverse tcp:3000 tcp:3000
 
 Release APK: built by GitHub Actions (`.github/workflows/apk.yml`) and attached to Releases on `v*` tags.
 
+## How this was built
+
+Built with AI assistance (Claude) for implementation speed; the requirements, design decisions,
+on-device testing and demo are mine.
+
 ## Known limitations / next steps
 - Background attendance stops if the student swipes the app away (the foreground service is tied to the app's task);
   some phones also need "battery optimisation" turned off for the app, which it asks for on first start.
