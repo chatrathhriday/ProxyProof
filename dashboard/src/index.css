@@ -399,6 +399,17 @@ tbody tr:last-child td {
   border-bottom: 0;
 }
 
+.toggle {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.toggle input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary);
+}
 .bad-text {
   color: var(--bad);
 }

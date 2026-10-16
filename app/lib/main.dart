@@ -6,6 +6,7 @@ import 'api.dart';
 import 'screens/admin_home.dart';
 import 'screens/device_gate.dart';
 import 'screens/login_screen.dart';
+import 'screens/onboarding_screen.dart';
 import 'screens/organiser_home.dart';
 import 'theme.dart';
 
@@ -17,8 +18,19 @@ Future<void> main() async {
     const SystemUiOverlayStyle(statusBarColor: Colors.transparent, systemNavigationBarColor: Colors.transparent),
   );
   await Api.instance.load();
+  _onboarded = await OnboardingScreen.seen();
+  Api.instance.onSessionExpired = () {
+    navigatorKey.currentState?.pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LoginScreen(notice: 'Your session expired — please sign in again.')),
+      (_) => false,
+    );
+  };
   runApp(const ProxyProofApp());
 }
+
+/// Lets non-widget code (the API client) navigate, e.g. back to login when a session expires.
+final navigatorKey = GlobalKey<NavigatorState>();
+bool _onboarded = true;
 
 class ProxyProofApp extends StatelessWidget {
   const ProxyProofApp({super.key});
@@ -27,6 +39,7 @@ class ProxyProofApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'ProxyProof',
+      navigatorKey: navigatorKey,
       debugShowCheckedModeBanner: false,
       theme: buildTheme(Brightness.light),
       darkTheme: buildTheme(Brightness.dark),
@@ -43,7 +56,7 @@ class HomeRouter extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final api = Api.instance;
-    if (api.token == null) return const LoginScreen();
+    if (api.token == null) return _onboarded ? const LoginScreen() : const OnboardingScreen();
     return switch (api.role) {
       'organiser' => const OrganiserHome(),
       'admin' => const AdminHome(),

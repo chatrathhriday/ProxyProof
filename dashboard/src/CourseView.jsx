@@ -8,6 +8,7 @@ export default function CourseView({ id, onBack }) {
   const [msg, setMsg] = useState(null)
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [onlyDefaulters, setOnlyDefaulters] = useState(false)
 
   const load = useCallback(() => api('GET', `/courses/${id}/students`).then(setData).catch((e) => setError(e.message)), [id])
   useEffect(() => {
@@ -48,6 +49,22 @@ export default function CourseView({ id, onBack }) {
 
   if (!data) return <p className="muted">{error || 'Loading…'}</p>
   const { course, held, students, invites = [] } = data
+  // Defaulters: below 75%, with the classes in a row they must attend to recover (ceil(3T - 4A)).
+  const pctOf = (s) => (held ? s.present / held : null)
+  const mustAttend = (s) => Math.max(0, Math.ceil(3 * held - 4 * s.present - 1e-9))
+  const defaulters = students.filter((s) => held && pctOf(s) < 0.75)
+  const shown = (onlyDefaulters ? defaulters : students).slice().sort((a, b) => (pctOf(a) ?? 1) - (pctOf(b) ?? 1))
+
+  function exportDefaulters() {
+    const cell = (v) => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v))
+    const rows = defaulters.map((s) =>
+      [s.name, s.email, s.present, held, Math.round(pctOf(s) * 100), mustAttend(s)].map(cell).join(','),
+    )
+    const csv = ['name,email,attended,held,percent,must_attend_next', ...rows].join('\n') + '\n'
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+    Object.assign(document.createElement('a'), { href: url, download: `${course.code}-defaulters.csv` }).click()
+    URL.revokeObjectURL(url)
+  }
 
   async function uninvite(email) {
     try {
@@ -87,9 +104,22 @@ export default function CourseView({ id, onBack }) {
         </div>
       </form>
 
+      <div className="actions" style={{ alignItems: 'center', marginBottom: 10 }}>
+        <label className="toggle">
+          <input type="checkbox" checked={onlyDefaulters} onChange={(e) => setOnlyDefaulters(e.target.checked)} />
+          Below 75% only ({defaulters.length})
+        </label>
+        {defaulters.length > 0 && (
+          <button className="btn small" onClick={exportDefaulters}>
+            Export defaulters CSV
+          </button>
+        )}
+      </div>
       <div className="card list">
-        {students.length === 0 && <p className="muted pad">No students yet.</p>}
-        {students.map((s) => {
+        {shown.length === 0 && (
+          <p className="muted pad">{onlyDefaulters ? 'Nobody is below 75%.' : 'No students yet.'}</p>
+        )}
+        {shown.map((s) => {
           const pct = held ? Math.round((s.present / held) * 100) : null
           return (
             <div key={s.id} className="row">
@@ -98,6 +128,7 @@ export default function CourseView({ id, onBack }) {
                 <div className="small">
                   {pct == null ? 'No classes yet' : `${s.present}/${held} classes · `}
                   {pct != null && <span className={pct >= 75 ? 'ok-text' : 'bad-text'}>{pct}%</span>}
+                  {pct != null && pct < 75 && <span className="muted"> · must attend next {mustAttend(s)}</span>}
                   {!s.has_device && <span className="muted"> · phone not linked yet</span>}
                 </div>
               </div>

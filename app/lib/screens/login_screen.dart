@@ -13,7 +13,10 @@ const _googleServerClientId = '37429262055-7u3mm2sj9takv871no63dpeikab9rj4m.apps
 const studentDomain = 'vitstudent.ac.in';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({super.key, this.notice});
+
+  /// Optional message shown on arrival, e.g. "Your session expired".
+  final String? notice;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -25,7 +28,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _password = TextEditingController();
   bool _staff = false;
   bool _busy = false;
-  String? _error;
+  late String? _error = widget.notice;
   OwlMood _mood = OwlMood.idle;
 
   Future<void> _done() async {

@@ -38,6 +38,9 @@ class Api {
   Map<String, dynamic>? user;
   bool _warm = false;
 
+  /// Set by the app: called when the server rejects our session (shows the login screen).
+  void Function()? onSessionExpired;
+
   Future<void> load() async {
     _prefs = await SharedPreferences.getInstance();
     baseUrl = _prefs.getString('baseUrl') ?? defaultBaseUrl;
@@ -110,6 +113,12 @@ class Api {
     final res = await http.Response.fromStream(streamed);
     _warm = true;
     final data = res.body.isEmpty ? null : jsonDecode(res.body);
+    if (res.statusCode == 401 && token != null && !path.startsWith('/auth/')) {
+      // Our JWT expired or was revoked: drop it and send the user back to sign in.
+      await logout();
+      onSessionExpired?.call();
+      throw ApiException(401, 'Your session expired — please sign in again.', 'SESSION_EXPIRED');
+    }
     if (res.statusCode >= 400) {
       final map = data is Map ? data : const {};
       throw ApiException(res.statusCode, map['error'] as String? ?? 'HTTP ${res.statusCode}', map['code'] as String?);

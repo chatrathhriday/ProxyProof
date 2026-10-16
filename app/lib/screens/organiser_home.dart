@@ -7,6 +7,7 @@ import '../theme.dart';
 import '../widgets/owl.dart';
 import '../widgets/ui.dart';
 import 'broadcast_screen.dart';
+import 'course_stats_screen.dart';
 
 /// Lists the organiser's courses; one tap starts a session and opens the broadcast screen.
 class OrganiserHome extends StatefulWidget {
@@ -260,6 +261,16 @@ class _OrganiserHomeState extends State<OrganiserHome> {
                                           overflow: TextOverflow.ellipsis,
                                         ),
                                       ],
+                                    ),
+                                  ),
+                                  IconButton(
+                                    tooltip: 'Attendance & defaulters',
+                                    icon: const Icon(Icons.insights_rounded, color: Brand.gold),
+                                    onPressed: () => Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) =>
+                                            CourseStatsScreen(courseId: c['id'] as int, title: '${c['code']}'),
+                                      ),
                                     ),
                                   ),
                                   FilledButton(

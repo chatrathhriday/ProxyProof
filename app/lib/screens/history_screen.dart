@@ -148,6 +148,7 @@ class _CourseCard extends StatelessWidget {
     final color = AttendanceRing.colorFor(pct);
     final t = Theme.of(context).textTheme;
     final live = c['liveSince'] != null;
+    final streak = (c['streak'] as int?) ?? 0;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -174,6 +175,10 @@ class _CourseCard extends StatelessWidget {
                             child: Text('${c['code']}', style: t.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
                           ),
                           if (live) ...[const SizedBox(width: 8), const Pill('LIVE', color: Brand.absent, pulse: true)],
+                          if (!live && streak >= 3) ...[
+                            const SizedBox(width: 8),
+                            Pill('$streak in a row', color: Brand.gold, icon: Icons.local_fire_department_rounded),
+                          ],
                         ],
                       ),
                       Text('${c['name']}', style: t.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -298,6 +303,13 @@ class _CourseDetailState extends State<_CourseDetail> {
                 ),
               ),
             ),
+          SectionTitle(
+            'Attendance calendar',
+            trailing: (c['streak'] as int? ?? 0) > 0
+                ? Pill('${c['streak']} in a row', color: Brand.gold, icon: Icons.local_fire_department_rounded)
+                : null,
+          ),
+          _Heatmap(sessions),
           SectionTitle('History'),
           if (sessions.isEmpty) const Text('No classes held yet.'),
           ...[
@@ -338,5 +350,95 @@ class _CourseDetailState extends State<_CourseDetail> {
     const m = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const w = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     return '${w[d.weekday - 1]}, ${d.day} ${m[d.month - 1]} · ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+  }
+}
+
+/// Last five weeks as a Mon–Sat grid: one rounded cell per day, coloured by that day's class.
+class _Heatmap extends StatelessWidget {
+  const _Heatmap(this.sessions);
+  final List<Map> sessions;
+
+  @override
+  Widget build(BuildContext context) {
+    final byDay = <String, String>{};
+    for (final s in sessions) {
+      final d = DateTime.parse(s['date'] as String).toLocal();
+      final key = '${d.year}-${d.month}-${d.day}';
+      // a day with any absence shows red, otherwise its best status
+      final prev = byDay[key];
+      final st = s['status'] as String;
+      byDay[key] = prev == 'absent' || st == 'absent' ? 'absent' : (prev == 'review' || st == 'review' ? 'review' : st);
+    }
+    final today = DateTime.now();
+    final monday = DateTime(today.year, today.month, today.day).subtract(Duration(days: today.weekday - 1 + 7 * 4));
+    final empty = Theme.of(context).brightness == Brightness.dark ? Colors.white10 : const Color(0xFFEDE7D8);
+    const labels = ['M', 'T', 'W', 'T', 'F', 'S'];
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            for (var row = 0; row < 6; row++)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 18,
+                      child: Text(labels[row], style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                    ),
+                    for (var week = 0; week < 5; week++)
+                      Expanded(
+                        child: Builder(
+                          builder: (context) {
+                            final day = monday.add(Duration(days: week * 7 + row));
+                            final st = byDay['${day.year}-${day.month}-${day.day}'];
+                            final color = switch (st) {
+                              'present' => Brand.present,
+                              'review' => Brand.review,
+                              'absent' => Brand.absent,
+                              _ => empty,
+                            };
+                            return Container(
+                                  height: 20,
+                                  margin: const EdgeInsets.symmetric(horizontal: 3),
+                                  decoration: BoxDecoration(
+                                    color: st == null ? color : color.withValues(alpha: 0.85),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: day.isAfter(today) ? Border.all(color: empty) : null,
+                                  ),
+                                )
+                                .animate(delay: ((week * 6 + row) * 18).ms)
+                                .scale(begin: const Offset(0.4, 0.4), duration: 250.ms, curve: Curves.easeOutBack);
+                          },
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            const SizedBox(height: 6),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                for (final (label, color) in [
+                  ('Present', Brand.present),
+                  ('Review', Brand.review),
+                  ('Absent', Brand.absent),
+                ]) ...[
+                  Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(3)),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(label, style: const TextStyle(fontSize: 11.5)),
+                  const SizedBox(width: 12),
+                ],
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

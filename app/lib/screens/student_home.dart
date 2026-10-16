@@ -11,9 +11,11 @@ import '../api.dart';
 import '../background.dart';
 import '../device_keys.dart';
 import '../ibeacon.dart';
+import '../schedule.dart';
 import '../main.dart';
 import '../permissions.dart';
 import '../theme.dart';
+import '../widgets/confetti.dart';
 import '../widgets/owl.dart';
 import '../widgets/ui.dart';
 import 'device_gate.dart';
@@ -58,22 +60,33 @@ class _StudentHomeState extends State<StudentHome> with WidgetsBindingObserver {
   final _rssi = ValueNotifier<int?>(null);
   bool _problem = false; // owl looks worried
   List _live = const []; // my courses with a class running now
+  List _courses = const []; // all my courses (timetables for 'next class')
+  final _confetti = ConfettiController();
+  Timer? _clock; // keeps 'next class in N min' fresh
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadLive();
+    _clock = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
   }
 
   Future<void> _loadLive() async {
     final cached = Api.instance.cached('/me/attendance');
-    if (cached is List) setState(() => _live = cached.where((c) => c['liveSince'] != null).toList());
+    if (cached is List) _setCourses(cached);
     try {
       final fresh = await Api.instance.get('/me/attendance') as List;
-      if (mounted) setState(() => _live = fresh.where((c) => c['liveSince'] != null).toList());
+      if (mounted) _setCourses(fresh);
     } catch (_) {}
   }
+
+  void _setCourses(List all) => setState(() {
+    _courses = all;
+    _live = all.where((c) => c['liveSince'] != null).toList();
+  });
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -191,7 +204,11 @@ class _StudentHomeState extends State<StudentHome> with WidgetsBindingObserver {
         _course = res['course'] as String?;
         if (!_spotBusy) _status = 'You are marked present ✓';
       });
-      if (firstMark) _notifyNormal();
+      if (firstMark) {
+        _notifyNormal();
+        _confetti.fire(); // celebrate the check-in
+        HapticFeedback.heavyImpact();
+      }
       final spot = res['spotCheck'];
       if (spot != null) _onSpotCheck(spot['id'] as int, spot['secondsLeft'] as int);
     } on PlatformException catch (e) {
@@ -304,6 +321,8 @@ class _StudentHomeState extends State<StudentHome> with WidgetsBindingObserver {
     FlutterBluePlus.stopScan();
     Background.stop();
     _rssi.dispose();
+    _clock?.cancel();
+    _confetti.dispose();
     super.dispose();
   }
 
@@ -348,63 +367,67 @@ class _StudentHomeState extends State<StudentHome> with WidgetsBindingObserver {
                 ],
               ).animate().fadeIn(duration: 300.ms),
               const SizedBox(height: 18),
-              HeroPanel(
-                child: Column(
-                  children: [
-                    Radar(
-                      active: _scanning && !_marked,
-                      size: 230,
-                      child: Owl(mood: _mood, size: 150),
-                    ),
-                    AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 350),
-                      transitionBuilder: (c, a) => FadeTransition(
-                        opacity: a,
-                        child: SlideTransition(
-                          position: Tween(begin: const Offset(0, 0.25), end: Offset.zero).animate(a),
-                          child: c,
+              Confetti(
+                controller: _confetti,
+                child: HeroPanel(
+                  child: Column(
+                    children: [
+                      Radar(
+                        active: _scanning && !_marked,
+                        size: 230,
+                        child: Owl(mood: _mood, size: 150),
+                      ),
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 350),
+                        transitionBuilder: (c, a) => FadeTransition(
+                          opacity: a,
+                          child: SlideTransition(
+                            position: Tween(begin: const Offset(0, 0.25), end: Offset.zero).animate(a),
+                            child: c,
+                          ),
                         ),
-                      ),
-                      child: Text(
-                        _status,
-                        key: ValueKey(_status),
-                        textAlign: TextAlign.center,
-                        style: Brand.display(context, size: 22, color: Colors.white),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    if (_course != null) Pill(_course!, color: Brand.goldSoft, icon: Icons.class_outlined),
-                    if (_scanning)
-                      ValueListenableBuilder<int?>(
-                        valueListenable: _rssi,
-                        builder: (_, v, _) => v == null
-                            ? const SizedBox(height: 22)
-                            : Padding(padding: const EdgeInsets.only(top: 10), child: _SignalBars(v)),
-                      ),
-                    const SizedBox(height: 18),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: _scanning ? Colors.white.withValues(alpha: 0.12) : Brand.gold,
-                          foregroundColor: _scanning ? Colors.white : Brand.navy,
-                        ),
-                        onPressed: _scanning ? _stop : _start,
-                        icon: Icon(_scanning ? Icons.stop_rounded : Icons.fingerprint),
-                        label: Text(_scanning ? 'Stop' : 'Start attendance'),
-                      ),
-                    ),
-                    if (_scanning)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 10),
                         child: Text(
-                          'You can lock your phone — attendance keeps running.',
-                          style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 12.5),
+                          _status,
+                          key: ValueKey(_status),
+                          textAlign: TextAlign.center,
+                          style: Brand.display(context, size: 22, color: Colors.white),
                         ),
                       ),
-                  ],
+                      const SizedBox(height: 8),
+                      if (_course != null) Pill(_course!, color: Brand.goldSoft, icon: Icons.class_outlined),
+                      if (_scanning)
+                        ValueListenableBuilder<int?>(
+                          valueListenable: _rssi,
+                          builder: (_, v, _) => v == null
+                              ? const SizedBox(height: 22)
+                              : Padding(padding: const EdgeInsets.only(top: 10), child: _SignalBars(v)),
+                        ),
+                      const SizedBox(height: 18),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: _scanning ? Colors.white.withValues(alpha: 0.12) : Brand.gold,
+                            foregroundColor: _scanning ? Colors.white : Brand.navy,
+                          ),
+                          onPressed: _scanning ? _stop : _start,
+                          icon: Icon(_scanning ? Icons.stop_rounded : Icons.fingerprint),
+                          label: Text(_scanning ? 'Stop' : 'Start attendance'),
+                        ),
+                      ),
+                      if (_scanning)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 10),
+                          child: Text(
+                            'You can lock your phone — attendance keeps running.',
+                            style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 12.5),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.06),
+              ..._timetable(context),
               SectionTitle(
                 'Live now',
                 trailing: TextButton(onPressed: widget.onOpenClasses, child: const Text('All classes')),
@@ -438,6 +461,106 @@ class _StudentHomeState extends State<StudentHome> with WidgetsBindingObserver {
       ),
     );
   }
+
+  /// "Next class" card + today's timetable, from the courses' weekly schedules.
+  List<Widget> _timetable(BuildContext context) {
+    final now = DateTime.now();
+    final next = nextClass(_courses, now);
+    final today = classesOn(_courses, now);
+    final t = Theme.of(context).textTheme;
+    if (next == null && today.isEmpty) return const [];
+    return [
+      const SectionTitle('Timetable'),
+      if (next != null)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: Brand.goldGradient,
+              borderRadius: BorderRadius.circular(22),
+              boxShadow: Brand.softShadow(context),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(color: Brand.navy, borderRadius: BorderRadius.circular(16)),
+                  child: Icon(next.isLive(now) ? Icons.sensors : Icons.schedule, color: Brand.goldSoft),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        next.isLive(now) ? 'HAPPENING NOW' : 'NEXT CLASS · ${countdown(now, next.start).toUpperCase()}',
+                        style: const TextStyle(
+                          color: Brand.navy,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.6,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${next.code} · ${next.name}',
+                        style: const TextStyle(color: Brand.navy, fontSize: 16, fontWeight: FontWeight.w800),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        '${_hm(next.start)} – ${_hm(next.end)} · ${next.room}',
+                        style: TextStyle(color: Brand.navy.withValues(alpha: 0.75), fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      if (today.isNotEmpty)
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Column(
+              children: [
+                for (final s in today)
+                  ListTile(
+                    dense: true,
+                    leading: SizedBox(
+                      width: 48,
+                      child: Text(
+                        _hm(s.start),
+                        style: t.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: s.isDone(now) ? t.bodySmall?.color?.withValues(alpha: 0.5) : null,
+                        ),
+                      ),
+                    ),
+                    title: Text(
+                      '${s.code} · ${s.name}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        decoration: s.isDone(now) ? TextDecoration.lineThrough : null,
+                      ),
+                    ),
+                    subtitle: Text(s.room),
+                    trailing: s.isLive(now)
+                        ? const Pill('LIVE', color: Brand.absent, pulse: true)
+                        : Pill(s.isDone(now) ? 'Done' : 'Upcoming', color: s.isDone(now) ? Colors.grey : Brand.gold),
+                  ),
+              ],
+            ),
+          ),
+        ),
+    ].staggered(startMs: 120);
+  }
+
+  static String _hm(DateTime d) => '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
 
   String _greeting() {
     final h = DateTime.now().hour;
