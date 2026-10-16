@@ -107,6 +107,50 @@ CREATE TABLE IF NOT EXISTS spot_check_results (
   PRIMARY KEY (spot_check_id, student_id)
 );
 
+-- v1.5: faculty accounts, admin tools, excused absences, announcements.
+-- Account status: faculty signing in with Google start 'pending' until an admin approves;
+-- 'disabled' locks anyone out (checked on every request, not just at login).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_status_check;
+ALTER TABLE users ADD CONSTRAINT users_status_check CHECK (status IN ('active', 'pending', 'disabled'));
+
+-- Teacher emails the admin pre-approved: their first Google sign-in is active immediately.
+CREATE TABLE IF NOT EXISTS faculty_allowlist (
+  email    TEXT PRIMARY KEY,
+  added_by INT REFERENCES users(id),
+  added_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Who changed what. Written for every override/approval so records can't be edited quietly.
+CREATE TABLE IF NOT EXISTS audit_log (
+  id       BIGSERIAL PRIMARY KEY,
+  at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  actor_id INT REFERENCES users(id),
+  action   TEXT NOT NULL,
+  target   TEXT,
+  details  JSONB NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS audit_by_time ON audit_log(at DESC);
+
+-- College-wide policy (min attendance, default thresholds), editable by the admin.
+CREATE TABLE IF NOT EXISTS settings (
+  key   TEXT PRIMARY KEY,
+  value JSONB NOT NULL
+);
+
+-- 'excused' (medical leave / on duty): not counted against the student's percentage.
+ALTER TABLE attendance DROP CONSTRAINT IF EXISTS attendance_status_check;
+ALTER TABLE attendance ADD CONSTRAINT attendance_status_check CHECK (status IN ('present', 'review', 'absent', 'excused'));
+
+CREATE TABLE IF NOT EXISTS announcements (
+  id         SERIAL PRIMARY KEY,
+  course_id  INT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+  author_id  INT NOT NULL REFERENCES users(id),
+  body       TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS announcements_by_course ON announcements(course_id, created_at DESC);
+
 -- Every accepted sighting; the presence timeline is built from these.
 CREATE TABLE IF NOT EXISTS sightings (
   id          BIGSERIAL PRIMARY KEY,

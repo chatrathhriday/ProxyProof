@@ -110,7 +110,7 @@ test('a 10-minute class resolves into present / review / absent', async () => {
   const report = (await api('GET', `/sessions/${session.id}`, { token: prof })).body;
   const v = Object.fromEntries(report.attendance.map((a) => [a.name, a.verdict]));
   assert.deepEqual(v, { Alice: 'present', Bob: 'absent', Carol: 'review', Dave: 'present', Eve: 'absent' });
-  assert.deepEqual(report.counts, { present: 2, review: 1, absent: 2 });
+  assert.deepEqual(report.counts, { present: 2, review: 1, absent: 2, excused: 0 });
   const reasons = Object.fromEntries(report.attendance.map((a) => [a.name, a.reason]));
   assert.match(reasons.Bob, /in range only 2\d%|in range only 1\d%/);
   assert.match(reasons.Carol, /did not answer spot check/);
@@ -130,7 +130,7 @@ test('Approve all turns review cases into present and finalises', async () => {
   const r = await api('POST', `/sessions/${session.id}/approve-all`, { token: prof });
   assert.equal(r.body.approved, 1);
   const report = (await api('GET', `/sessions/${session.id}`, { token: prof })).body;
-  assert.deepEqual(report.counts, { present: 3, review: 0, absent: 2 });
+  assert.deepEqual(report.counts, { present: 3, review: 0, absent: 2, excused: 0 });
   assert.ok(report.finalized_at);
   const csv = await (await fetch(`${base}/sessions/${session.id}/export.csv`, { headers: { authorization: `Bearer ${prof}` } })).text();
   assert.match(csv, /\nCarol,carol@t\.test,present,manual,100,failed,set by teacher/);

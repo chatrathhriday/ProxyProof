@@ -121,7 +121,7 @@ export async function sessionReport(s, t = now()) {
     ),
   ]);
 
-  const counts = { present: 0, review: 0, absent: 0 };
+  const counts = { present: 0, review: 0, absent: 0, excused: 0 };
   const attendance = rows.map((r) => {
     const n = buckets.find((b) => b.student_id === r.student_id)?.n || 0;
     const coverage = Math.min(1, n / totalBuckets);

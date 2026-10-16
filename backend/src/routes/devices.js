@@ -2,6 +2,7 @@ import express from 'express';
 import { query, one } from '../db.js';
 import { requireRole } from '../auth.js';
 import { parsePublicKey, fingerprint } from '../signing.js';
+import { audit } from '../policy.js';
 
 export const devicesRouter = express.Router();
 
@@ -66,6 +67,8 @@ devicesRouter.post('/:id/approve', requireRole('admin'), async (req, res) => {
     "UPDATE devices SET status = 'approved', decided_at = now(), decided_by = $2 WHERE id = $1 RETURNING *",
     [d.id, req.user.id]
   );
+  const who = await one('SELECT email FROM users WHERE id = $1', [d.user_id]);
+  await audit(req.user.id, 'device.approved', who?.email, { model: d.model });
   res.json(view(updated));
 });
 
@@ -75,5 +78,7 @@ devicesRouter.post('/:id/reject', requireRole('admin'), async (req, res) => {
     [req.params.id, req.user.id]
   );
   if (!updated) return res.status(404).json({ error: 'no such pending device' });
+  const who = await one('SELECT email FROM users WHERE id = $1', [updated.user_id]);
+  await audit(req.user.id, 'device.rejected', who?.email, { model: updated.model });
   res.json(view(updated));
 });

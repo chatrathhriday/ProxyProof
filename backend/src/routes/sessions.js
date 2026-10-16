@@ -6,6 +6,7 @@ import { BEACON_UUID, WINDOW_SECONDS, currentWindow, newSecret, tokenFor } from 
 import { emit } from '../live.js';
 import { now } from '../clock.js';
 import { sessionReport, persistVerdicts, randomSpotCheckTime } from '../presence.js';
+import { audit, getPolicy } from '../policy.js';
 
 export const sessionsRouter = express.Router();
 
@@ -26,7 +27,8 @@ const beaconActive = (id) => now() - (lastBeaconFetch.get(id) || 0) < 25_000;
 
 // Defaults keep the teacher's flow to one tap; thresholds live under "Advanced".
 sessionsRouter.post('/', requireRole('organiser'), async (req, res) => {
-  const { courseId, rssiThreshold = -75, presencePct = 80, expectedMinutes = 50 } = req.body || {};
+  const policy = await getPolicy(); // college defaults, overridable per session under 'Advanced'
+  const { courseId, rssiThreshold = policy.rssiThreshold, presencePct = policy.presencePct, expectedMinutes = 50 } = req.body || {};
   const course = await one('SELECT * FROM courses WHERE id = $1 AND organiser_id = $2', [courseId, req.user.id]);
   if (!course) return res.status(404).json({ error: 'course not found' });
   const minutes = Math.min(240, Math.max(1, Number(expectedMinutes) || 50));
@@ -79,10 +81,14 @@ sessionsRouter.post('/:id/attendance', requireRole('organiser', 'admin'), async 
   const s = await ownedSession(req);
   if (!s) return res.status(404).json({ error: 'session not found' });
   const { studentId, status } = req.body || {};
-  if (!['present', 'absent'].includes(status)) return res.status(400).json({ error: "status must be 'present' or 'absent'" });
+  if (!['present', 'absent', 'excused'].includes(status))
+    return res.status(400).json({ error: "status must be 'present', 'absent' or 'excused'" });
   const enrolled = await one('SELECT 1 FROM enrollments WHERE course_id = $1 AND student_id = $2', [s.course_id, studentId]);
   if (!enrolled) return res.status(404).json({ error: 'student not enrolled' });
   await setManual(s.id, studentId, status);
+  const who = await one('SELECT email FROM users WHERE id = $1', [studentId]);
+  const course = await one('SELECT code FROM courses WHERE id = $1', [s.course_id]);
+  await audit(req.user.id, `attendance.${status}`, who?.email, { course: course?.code, session: s.id, date: s.started_at });
   emit(s.id, 'roster');
   res.json({ ok: true });
 });
@@ -117,6 +123,7 @@ sessionsRouter.post('/:id/approve-all', requireRole('organiser', 'admin'), async
   const flagged = attendance.filter((a) => a.verdict === 'review');
   for (const a of flagged) await setManual(s.id, a.student_id, 'present');
   await query('UPDATE sessions SET finalized_at = $2 WHERE id = $1', [s.id, new Date(now())]);
+  if (flagged.length) await audit(req.user.id, 'attendance.approve_all', `session ${s.id}`, { count: flagged.length });
   emit(s.id, 'roster');
   res.json({ approved: flagged.length });
 });
